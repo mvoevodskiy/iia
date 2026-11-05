@@ -360,19 +360,38 @@ ${BLANK}`,
   };
 }
 
-export function enginesScreen(state) {
+export function enginesScreen(state, engineSnap = null) {
   const eng = state.engine === 'oc' ? 'OpenClaw' : 'Claude Code';
+  const j = engineSnap?.jarvis;
+  const o = engineSnap?.openclaw;
+  const helper = engineSnap?.helper ? String(engineSnap.helper) : '—';
+  const jLine = j
+    ? `MSB-бот: <b>${escapeHtml(j.state)}</b>${j.bots?.length ? ` (${j.bots.length})` : ''}`
+    : 'MSB-бот: нет данных helper';
+  const oLine = o
+    ? `OpenClaw: <b>${o.installed ? (o.enabled ? o.gateway || 'on' : 'off') : 'не установлен'}</b>`
+    : 'OpenClaw: нет данных';
+  const err = engineSnap?.error === 'NO_STATE'
+    ? '\n\n⚠️ Нет /run/msb-engine/state.json — проверь msb-engine.path'
+    : '';
   return {
     text: `<b>⚙️ Движки</b>
 
 Сейчас отвечает: <b>${escapeHtml(eng)}</b>
+Helper: <code>${escapeHtml(helper)}</code>
 
-OpenClaw в open-core ещё переносится. Можно оставить Claude Code.
+${jLine}
+${oLine}${err}
+
+Установка OpenClaw из меню — в v1.1. Сейчас: статус / вкл-выкл, если OC уже на боксе.
 ${BLANK}`,
     keyboard: new InlineKeyboard()
       .text('👾 Claude Code', 'settings:engine:set:cc')
       .row()
-      .text('➕ OpenClaw', 'eng:add')
+      .text('🔄 Статус helper', 'eng:status')
+      .row()
+      .text('▶️ OC', 'eng:oc:on')
+      .text('⏸ OC', 'eng:oc:off')
       .row()
       .text('« Назад', 'menu:settings'),
   };

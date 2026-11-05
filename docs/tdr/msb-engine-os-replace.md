@@ -1,6 +1,6 @@
 # TDR: Открытая ОС-обвязка MSB (`msb-engine`) вместо закрытого Jarvis base layer
 
-**Статус:** Draft  
+**Статус:** Accepted (реализация v1 в ветке open-core)  
 **Ветка:** `open-core`  
 **Контекст:** замена `usr-local-sbin/jarvis-engine` + связанных systemd/sudoers/pulse/update на собственный стек, готовый к выкладке на серверы без хаба создателя  
 **Связанные артефакты:** [`.msb/bot/OPEN-CORE.md`](../../.msb/bot/OPEN-CORE.md), `usr-local-sbin/jarvis-engine` (эталон 0.5.9), `systemd/jarvis-engine*`, `systemd/msb-base-pulse*`, `usr-local-bin/bot-ctl.sh`, `bootstrap/`

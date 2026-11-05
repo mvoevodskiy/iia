@@ -48,6 +48,11 @@ import {
 } from './screens.mjs';
 import { applyEffort, applyModelFamily, applyPermMode } from './actions.mjs';
 import { removeSource } from '../monitor/config.mjs';
+import {
+  engineStatusSnapshot,
+  submitRequest,
+  waitRequestResult,
+} from '../engines/client.mjs';
 import { pollAllSources } from '../monitor/poll.mjs';
 import { buildDigestText, updateDigestSettings } from '../monitor/digest.mjs';
 import { removeBot } from '../bots/manage.mjs';
@@ -230,10 +235,50 @@ export async function handleCallback({ bot, cfg, pending, ctx }) {
   if (data === 'settings:stt') return show(sttScreen());
   if (data === 'nm:list') return show(notificationsScreen());
   if (data === 'eng:home' || data === 'eng:add' || data === 'eng:mig') {
+    const snap = await engineStatusSnapshot();
     if (process.env.JARVIS_CC_ONLY === '1' && data !== 'eng:home') {
-      return show({ text: CC_BLOCK(), keyboard: enginesScreen(state).keyboard });
+      return show({ text: CC_BLOCK(), keyboard: enginesScreen(state, snap).keyboard });
     }
-    return show(enginesScreen(state));
+    return show(enginesScreen(state, snap));
+  }
+  if (data === 'eng:status') {
+    try {
+      const { id } = await submitRequest('status', {
+        bot_id: process.env.MSB_BOT_ID || 'default',
+      });
+      const result = await waitRequestResult(id, { timeoutMs: 20_000 });
+      const snap = await engineStatusSnapshot();
+      const note = result
+        ? `\n\nЗаявка <code>${result.code}</code> (${result.result})`
+        : '\n\n⚠️ Нет ответа helper за 20с';
+      const screen = enginesScreen(state, snap);
+      return show({ text: screen.text + note, keyboard: screen.keyboard });
+    } catch (err) {
+      return show({
+        text: `Не удалось связаться с msb-engine: ${err.message}`,
+        keyboard: enginesScreen(state).keyboard,
+      });
+    }
+  }
+  if (data === 'eng:oc:on' || data === 'eng:oc:off') {
+    const action = data === 'eng:oc:on' ? 'enable-openclaw' : 'disable-openclaw';
+    try {
+      const { id } = await submitRequest(action, {
+        bot_id: process.env.MSB_BOT_ID || 'default',
+      });
+      const result = await waitRequestResult(id, { timeoutMs: 60_000 });
+      const snap = await engineStatusSnapshot();
+      const screen = enginesScreen(state, snap);
+      const note = result
+        ? `\n\n${action}: <code>${result.code}</code>`
+        : `\n\n⚠️ ${action}: нет ответа`;
+      return show({ text: screen.text + note, keyboard: screen.keyboard });
+    } catch (err) {
+      return show({
+        text: `${action} ошибка: ${err.message}`,
+        keyboard: enginesScreen(state).keyboard,
+      });
+    }
   }
 
   // —— autonomy ——

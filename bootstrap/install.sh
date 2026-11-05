@@ -68,7 +68,8 @@ need_root
 command -v systemctl >/dev/null || die "нужен systemd"
 
 [[ -d "$SOURCE/.msb/bot" ]] || die "нет $SOURCE/.msb/bot — укажи --source"
-[[ -f "$SOURCE/usr-local-sbin/jarvis-engine" ]] || die "нет jarvis-engine в снимке"
+[[ -f "$SOURCE/usr-local-sbin/msb-engine" ]] || die "нет msb-engine в снимке"
+[[ -d "$SOURCE/usr-local-lib/msb-engine" ]] || die "нет usr-local-lib/msb-engine в снимке"
 [[ -f "$SOURCE/systemd/msb-bot@.service" ]] || die "нет systemd-юнитов в снимке"
 
 IFS=',' read -r -a BOT_LIST <<<"$BOTS"
@@ -218,27 +219,33 @@ install_node_deps() {
 
 # ─── 5. bin / sbin ────────────────────────────────────────────────────────────
 install_bins() {
-  log "скрипты /usr/local/bin и jarvis-engine"
-  run install -d -m 0755 /usr/local/bin /usr/local/sbin /usr/local/lib/jarvis-engine
+  log "скрипты /usr/local/bin и msb-engine"
+  run install -d -m 0755 /usr/local/bin /usr/local/sbin /usr/local/lib/msb-engine
   run install -m 0755 "$SOURCE/usr-local-bin/bot-ctl.sh" /usr/local/bin/bot-ctl.sh
   run install -m 0755 "$SOURCE/usr-local-bin/msb-bot-watchdog.sh" /usr/local/bin/msb-bot-watchdog.sh
-  run install -m 0755 "$SOURCE/usr-local-sbin/jarvis-engine" /usr/local/sbin/jarvis-engine
-  run cp -a "$SOURCE/usr-local-sbin/jarvis-engine" /usr/local/lib/jarvis-engine/jarvis-engine.good
-  run chmod 0755 /usr/local/lib/jarvis-engine/jarvis-engine.good
+  run install -m 0755 "$SOURCE/usr-local-sbin/msb-engine" /usr/local/sbin/msb-engine
+  if [[ "$DRY_RUN" != "1" ]]; then
+    rsync -a --delete \
+      --exclude 'rollback/' \
+      "$SOURCE/usr-local-lib/msb-engine/" /usr/local/lib/msb-engine/
+    cp -a /usr/local/sbin/msb-engine /usr/local/lib/msb-engine/msb-engine.good
+    chmod 0755 /usr/local/lib/msb-engine/msb-engine.good
+  fi
 }
 
 # ─── 6. sudoers / tick conf ───────────────────────────────────────────────────
 install_sudoers() {
   log "sudoers + /etc/msb-tick"
   run install -d -m 0755 /etc/sudoers.d /etc/msb-tick
-  for f in msb-admin agent-client msb-tick jarvis-client; do
+  # jarvis-client / msb-full-rights — НЕ ставим (opt-in). Узкий msb-engine + admin/tick/agent.
+  for f in msb-admin agent-client msb-tick msb-engine; do
     run install -m 0440 "$SOURCE/etc/sudoers.d/$f" "/etc/sudoers.d/$f"
   done
   if [[ "$DRY_RUN" != "1" ]]; then
     visudo -cf /etc/sudoers.d/msb-admin \
       && visudo -cf /etc/sudoers.d/agent-client \
       && visudo -cf /etc/sudoers.d/msb-tick \
-      && visudo -cf /etc/sudoers.d/jarvis-client \
+      && visudo -cf /etc/sudoers.d/msb-engine \
       || die "visudo отклонил sudoers"
   fi
   run install -m 0644 "$SOURCE/etc/msb-tick/puller.conf" /etc/msb-tick/puller.conf
@@ -337,16 +344,13 @@ CORE_UNITS=(
   msb-tick-puller.timer
   msb-pull-now.path
   msb-pull-now.service
-  msb-base-pulse.timer
-  msb-base-pulse.service
-  jarvis-engine.path
-  jarvis-engine.service
-  jarvis-engine-tick.timer
-  jarvis-engine-tick.service
-  jarvis-engine-update.path
-  jarvis-engine-update.service
-  jarvis-engine-nft.service
+  msb-engine.path
+  msb-engine.service
+  msb-engine-tick.timer
+  msb-engine-tick.service
 )
+# НЕ ставим: jarvis-engine*, msb-base-pulse* (pulse на SYNC создателя).
+# Эталон jarvis остаётся в репо для migrate/rollback, на чистый бокс не кладётся.
 
 install_systemd() {
   log "systemd-юниты ядра"
@@ -408,12 +412,18 @@ enable_services() {
   systemctl enable --now msb-sync.timer || warn "msb-sync.timer"
   systemctl enable --now msb-tick-puller.timer || warn "msb-tick-puller.timer"
   systemctl enable --now msb-pull-now.path || warn "msb-pull-now.path"
-  systemctl enable --now msb-base-pulse.timer || warn "msb-base-pulse.timer"
-  systemctl enable jarvis-engine.path jarvis-engine-update.path jarvis-engine-tick.timer \
-    || warn "jarvis-engine units"
-  systemctl start jarvis-engine.path jarvis-engine-update.path || true
-  systemctl enable --now jarvis-engine-tick.timer || true
-  systemctl enable jarvis-engine-nft.service || true
+  systemctl enable --now msb-engine.path || warn "msb-engine.path"
+  systemctl enable --now msb-engine-tick.timer || warn "msb-engine-tick.timer"
+  if [[ "$DRY_RUN" != "1" ]]; then
+    /usr/bin/python3 -IS /usr/local/lib/msb-engine/cli.py setup || warn "msb-engine setup"
+    # На всякий случай mask vendor Jarvis, если файлы остались с прошлой жизни бокса
+    for u in jarvis-engine.path jarvis-engine.service jarvis-engine-tick.timer \
+             jarvis-engine-tick.service jarvis-engine-update.path jarvis-engine-update.service \
+             jarvis-engine-nft.service msb-base-pulse.timer msb-base-pulse.service; do
+      systemctl disable --now "$u" 2>/dev/null || true
+      systemctl mask "$u" 2>/dev/null || true
+    done
+  fi
 
   if [[ -n "$ENV_FILE" ]]; then
     local id

@@ -24,19 +24,20 @@ bootstrap/workspace-seed/ → /home/client/workspace/   # ТОЛЬКО seed
 Повторный install без --reset-workspace НЕ перезаписывает живой workspace.
 Политика: bootstrap/UPDATE-POLICY.md (system-блоки, не wholesale).
 
-usr-local-bin/*           → /usr/local/bin/   # stock bot-ctl (без add/remove обвязки)
-usr-local-sbin/jarvis-engine → /usr/local/sbin/ + /usr/local/lib/jarvis-engine/jarvis-engine.good
+usr-local-bin/*           → /usr/local/bin/   # bot-ctl + watchdog
+usr-local-sbin/msb-engine → /usr/local/sbin/ + /usr/local/lib/msb-engine/
 
 systemd/msb-bot@.service (+ drop-ins ядра)
   ExecStart=/usr/bin/node …/bot/index.js     # штатное ядро
 systemd/msb-sync.* (+ drop-ins)
 systemd/msb-tick@.service + msb-tick-puller.timer
 systemd/msb-pull-now.*
-systemd/msb-base-pulse.*
-systemd/jarvis-engine*
+systemd/msb-engine.path/.service + msb-engine-tick.*
 systemd/drop-ins/system-msb-bot.slice.d/
 etc/msb-tick/puller.conf  → /etc/msb-tick/puller.conf
-etc/sudoers.d/{msb-admin,agent-client,msb-tick,jarvis-client}
+etc/sudoers.d/{msb-admin,agent-client,msb-tick,msb-engine}
+  # НЕ ставятся: jarvis-client, msb-full-rights, jarvis-engine*, msb-base-pulse*
+  # Миграция с Jarvis: bootstrap/migrate-from-jarvis.sh
 
 Создаётся на месте:
   /home/client/projects/          # пусто — проекты бот заводит сам

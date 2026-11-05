@@ -59,6 +59,7 @@ systemd / bootstrap не меняются: `ExecStart=…/bot/index.js`.
 - **Переменные окружения**: CRUD в `.env` бота + быстрые ключи
 - **Обновления**: только свой канал `MSB_OWN_UPDATES_URL` (apply — позже); vendor отключён
 - Ход агента Claude CLI, автономка, heartbeat, откат `MSB_USE_CLOSED_CORE=1`
+- **OS-обвязка**: `msb-engine` вместо `jarvis-engine` (IPC `~/.msb/engine/request`, state `/run/msb-engine/state.json`); см. `docs/tdr/msb-engine-os-replace.md`
 
 ## Обновления
 
@@ -72,7 +73,7 @@ systemd / bootstrap не меняются: `ExecStart=…/bot/index.js`.
 | Подсистема | Статус |
 |------------|--------|
 | agent-cc глубина (budget/subagents) | дальше |
-| OpenClaw | заглушка |
+| OpenClaw | enable/disable через msb-engine; install — v1.1 |
 | MCP install | UI есть |
 | SSH constructor API | overlay / локальный IP |
 | Own updates apply | после сервиса |

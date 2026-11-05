@@ -1,8 +1,10 @@
-# Engines (заготовка)
+# Engines
 
-Закрытое ядро: Claude Code (`cc`) и OpenClaw (`oc`), экраны `eng:*` / `settings:engine:*`.
+Open-core отвечает через Claude Code (`cc`). OpenClaw (`oc`) — enable/disable через
+`msb-engine` (IPC `~/.msb/engine/request` → `/run/msb-engine/state.json`).
 
-Open-core 0.1 отвечает только через `cc`. При `state.engine === "oc"` ход отклоняется
-с подсказкой переключиться.
+Клиент: [`client.mjs`](./client.mjs). Helper: `/usr/local/sbin/msb-engine` (TDR
+`docs/tdr/msb-engine-os-replace.md`).
 
-Дальше: порт `agent-oc` / `oc-bus` / `oc-oauth` из `vendor/deobfuscated.js` по лог-префиксам.
+v1 actions: `status`, `enable-jarvis`, `disable-jarvis`, `enable-openclaw`,
+`disable-openclaw` (`update-openclaw` → NOT_AVAILABLE до своего канала).

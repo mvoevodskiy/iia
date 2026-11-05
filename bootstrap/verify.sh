@@ -14,16 +14,53 @@ info() { printf '  --  %s\n' "$*"; }
 echo "=== MSB bootstrap verify ==="
 
 id -u "$CLIENT_USER" >/dev/null 2>&1 && ok "user $CLIENT_USER" || bad "user $CLIENT_USER"
-id -u "$ADMIN_USER" >/dev/null 2>&1 && ok "user $ADMIN_USER" || bad "user $ADMIN_USER"
+# msb-admin (новый) или iia-admin (legacy на уже живых боксах)
+if id -u "$ADMIN_USER" >/dev/null 2>&1; then
+  ok "user $ADMIN_USER"
+elif id -u iia-admin >/dev/null 2>&1; then
+  ok "user iia-admin (legacy admin)"
+else
+  bad "user $ADMIN_USER (и нет iia-admin)"
+fi
 
 command -v node >/dev/null && ok "node $(node -v)" || bad "node"
 [[ -x /usr/bin/node ]] && ok "/usr/bin/node (как в unit)" || bad "/usr/bin/node"
 
 [[ -f "$MSB_HOME/bot/index.js" ]] && ok "bot/index.js" || bad "bot/index.js"
 [[ -d "$MSB_HOME/bot/node_modules" ]] && ok "bot/node_modules" || bad "bot/node_modules (npm ci?)"
-[[ -f /usr/local/sbin/jarvis-engine ]] && ok "jarvis-engine" || bad "jarvis-engine"
+[[ -x /usr/local/sbin/msb-engine ]] && ok "msb-engine" || bad "msb-engine"
+[[ -f /usr/local/lib/msb-engine/cli.py ]] && ok "msb-engine lib" || bad "msb-engine lib"
 [[ -x /usr/local/bin/bot-ctl.sh ]] && ok "bot-ctl.sh" || bad "bot-ctl.sh"
 [[ -x /usr/local/bin/msb-bot-watchdog.sh ]] && ok "watchdog" || bad "watchdog"
+[[ -f /etc/sudoers.d/msb-engine ]] && ok "sudoers msb-engine" || bad "sudoers msb-engine"
+if [[ -f /etc/sudoers.d/jarvis-client ]]; then
+  bad "jarvis-client sudoers ещё на месте (нужен migrate / удаление)"
+else
+  ok "нет jarvis-client sudoers"
+fi
+if systemctl is-enabled msb-engine.path >/dev/null 2>&1; then
+  ok "msb-engine.path enabled"
+else
+  bad "msb-engine.path не enabled"
+fi
+if systemctl is-enabled msb-engine-tick.timer >/dev/null 2>&1; then
+  ok "msb-engine-tick.timer enabled"
+else
+  bad "msb-engine-tick.timer не enabled"
+fi
+je="$(systemctl is-enabled jarvis-engine.path 2>/dev/null || true)"
+if [[ "$je" == "masked" || "$je" == "disabled" || "$je" == "" ]]; then
+  ok "jarvis-engine.path не active ($je)"
+else
+  bad "jarvis-engine.path всё ещё enabled ($je) — конфликт helper"
+fi
+if [[ -x /usr/local/sbin/msb-engine ]]; then
+  if /usr/local/sbin/msb-engine status >/dev/null 2>&1; then
+    ok "msb-engine status"
+  else
+    info "msb-engine status не отработал (нужен root?)"
+  fi
+fi
 
 [[ -d "$WORKSPACE" ]] && ok "workspace" || bad "workspace"
 [[ -d "$PROJECTS" ]] && ok "projects (пусто — норма)" || bad "projects"

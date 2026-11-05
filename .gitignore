@@ -6,3 +6,6 @@ node_modules/
 workspace/memory/
 workspace/.media/
 bots-runtime/
+
+__pycache__/
+*.py[cod]
