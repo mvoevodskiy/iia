@@ -51,33 +51,31 @@ systemd / bootstrap не меняются: `ExecStart=…/bot/index.js`.
 Открытое ядро сохраняет поля `authMode`, `hasSubscriptionAuth`, `ccSessionId`,
 `model`, `effort`, `permMode`, `engine`, `extAuthBypass`.
 
-## Что уже есть (0.2)
+## Что уже есть (0.3)
 
-- Telegram UI **с точки зрения меню**: hub, агент, настройки, автономка, мониторинг, MCP, навыки, сессии, проекты, setup — те же кнопки/`callback_data`, что в бандле
-- Slash-команды как в `sBA` (+ help-тексты)
-- ADMIN_ID: чужие апдейты — тишина; Setup Mode как в контракте
-- Приём Claude OAuth / API key
-- Ход агента через `claude -p --output-format stream-json`
-- Сессии (`ccSessionId`), статус tool_use в чате
-- Автономка: парсер «каждые N часов…», tasks.json, тик планировщика
-- Heartbeat-маркер без vendor telemetry
-- Откат на closed core одной переменной
+- Telegram UI: hub / агент / настройки / автономка / мониторинг / MCP / …
+- **Мониторинг рабочий**: источники, poll, дайджест, `~/.iia/monitor/`
+- **Мои боты**: list/add/remove через `sudo bot-ctl.sh` (без хаба создателя)
+- **Переменные окружения**: CRUD в `.env` бота + быстрые ключи
+- **Обновления**: только свой канал `IIA_OWN_UPDATES_URL` (apply — позже); vendor отключён
+- Ход агента Claude CLI, автономка, heartbeat, откат `IIA_USE_CLOSED_CORE=1`
 
-## UI vs бэкенд
+## Обновления
 
-Меню и тексты — копия бандла. Часть экранов (SSH/моботы через constructor API, полный monitor collector, OpenClaw install) показывает штатный UI, а действие ещё переносится или требует хаб/overlay.
+| Канал | Статус |
+|-------|--------|
+| Vendor puller/sync создателя | не трогает open-core |
+| Свой сервис (`IIA_OWN_UPDATES_URL`) | check есть; apply — когда сервис готов |
 
-## Что переносится дальше (по CONTRACT-*.md)
+## Что дальше
 
 | Подсистема | Статус |
 |------------|--------|
-| Telegram UI (меню/команды) | паритет навигации 0.2 |
-| agent-cc (полный stream, budget, subagents) | каркас → углублять |
-| OpenClaw / agent-oc | заглушка + экраны |
-| Monitor collector | UI есть, сбор — дальше |
-| MCP install | UI есть, wiring — дальше |
-| Multi-bot via constructor API | UI есть; на сервере — bot-ctl |
-| Vendor sync/puller | выключены против open-core |
+| agent-cc глубина (budget/subagents) | дальше |
+| OpenClaw | заглушка |
+| MCP install | UI есть |
+| SSH constructor API | overlay / локальный IP |
+| Own updates apply | после сервиса |
 
 Эталон поведения и строки UI — в `vendor/deobfuscated.js` и CHANGELOG.md.
 

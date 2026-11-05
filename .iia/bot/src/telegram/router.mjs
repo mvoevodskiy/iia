@@ -2,6 +2,7 @@
  * Роутер callback_query — те же callback_data, что в закрытом ядре.
  */
 import { spawn } from 'node:child_process';
+import { InlineKeyboard } from 'grammy';
 import { loadState, updateState } from '../state.mjs';
 import { editOrReply } from './edit.mjs';
 import {
@@ -12,6 +13,7 @@ import {
   autonomyTasksScreen,
   autonomyTimersScreen,
   autonomyWhatScreen,
+  botDetailScreen,
   botsScreen,
   connScreen,
   effortScreen,
@@ -42,8 +44,14 @@ import {
   sshUnavailableScreen,
   sttScreen,
   tzScreen,
+  updatesScreen,
 } from './screens.mjs';
 import { applyEffort, applyModelFamily, applyPermMode } from './actions.mjs';
+import { removeSource } from '../monitor/config.mjs';
+import { pollAllSources } from '../monitor/poll.mjs';
+import { buildDigestText, updateDigestSettings } from '../monitor/digest.mjs';
+import { removeBot } from '../bots/manage.mjs';
+import { deleteEnvKey } from '../env/store.mjs';
 
 /**
  * @param {object} opts
@@ -141,22 +149,68 @@ export async function handleCallback({ bot, cfg, pending, ctx }) {
     return;
   }
   if (data === 'settings:ssh') return show(sshUnavailableScreen());
-  if (data === 'settings:bots' || data === 'settings:bots:refresh') return show(botsScreen());
+  if (data === 'settings:updates') return show(await updatesScreen());
+  if (data === 'settings:bots' || data === 'settings:bots:refresh') return show(await botsScreen());
   if (data === 'settings:bots:add') {
     pending.set(chatId, 'bot-token');
     return show({
-      text: `👾 <b>Новый бот</b>\n\nПришли токен от @BotFather (<code>1234567890:ABC…</code>).`,
-      keyboard: botsScreen().keyboard,
+      text: `👾 <b>Новый бот</b>\n\nПришли токен от @BotFather (<code>1234567890:ABC…</code>).\nЯ сам поставлю юнит через <code>sudo bot-ctl.sh add</code>.`,
+      keyboard: (await botsScreen()).keyboard,
     });
   }
-  if (data === 'settings:env') return show(envScreen());
+  if (data === 'settings:bots:cancel') {
+    pending.delete(chatId);
+    return show(await botsScreen());
+  }
+  if (data.startsWith('settings:bots:bot:')) {
+    return show(await botDetailScreen(data.slice('settings:bots:bot:'.length)));
+  }
+  if (data.startsWith('settings:bots:delete-confirm:')) {
+    const id = data.slice('settings:bots:delete-confirm:'.length);
+    const res = await removeBot(id);
+    await bot.api.sendMessage(chatId, res.ok ? `✔ Удалён <b>${id}</b>` : `Не удалось: ${res.error}`, {
+      parse_mode: 'HTML',
+    });
+    return show(await botsScreen());
+  }
+  if (data.startsWith('settings:bots:delete:')) {
+    const id = data.slice('settings:bots:delete:'.length);
+    return show({
+      text: `🗑 <b>Удалить ${id}?</b>\n\nПереписки и настройки сотрутся. Бот в Telegram останется.`,
+      keyboard: new InlineKeyboard()
+        .text(`Да, удалить ${id}`, `settings:bots:delete-confirm:${id}`)
+        .row()
+        .text('✖ Отмена', `settings:bots:bot:${id}`),
+    });
+  }
+  if (data === 'settings:env') return show(await envScreen());
+  if (data === 'settings:env:add') {
+    pending.set(chatId, 'env-key-name');
+    return show({
+      text: 'Пришли имя ключа (например <code>MY_API_KEY</code>).',
+      keyboard: (await envScreen()).keyboard,
+    });
+  }
   if (data.startsWith('settings:env:quick:')) {
     const key = data.slice('settings:env:quick:'.length);
     pending.set(chatId, `env:${key}`);
     return show({
       text: `Пришли значение для <code>${key}</code>.`,
-      keyboard: envScreen().keyboard,
+      keyboard: (await envScreen()).keyboard,
     });
+  }
+  if (data.startsWith('settings:env:delete:')) {
+    const key = data.slice('settings:env:delete:'.length);
+    try {
+      await deleteEnvKey(key);
+      await bot.api.sendMessage(chatId, `Удалил <code>${key}</code>.`, { parse_mode: 'HTML' });
+    } catch (err) {
+      await bot.api.sendMessage(chatId, err.message);
+    }
+    return show(await envScreen());
+  }
+  if (data.startsWith('settings:env:confirm-delete:')) {
+    return show(await envScreen());
   }
   if (data === 'settings:tz') {
     pending.set(chatId, 'timezone');
@@ -198,7 +252,6 @@ export async function handleCallback({ bot, cfg, pending, ctx }) {
     );
     return show(await autonomyRightsScreen());
   }
-  if (data === 'auto:monitor') return show(monitorScreen('auto:home'));
   if (data.startsWith('auto:task:')) {
     const id = data.slice('auto:task:'.length);
     return show(placeholder(`Задача ${id.slice(0, 8)}`, 'auto:tasks'));
@@ -208,27 +261,68 @@ export async function handleCallback({ bot, cfg, pending, ctx }) {
   }
 
   // —— monitor ——
-  if (data === 'mon:back') return show(monitorScreen());
-  if (data === 'mon:sources') return show(monitorSourcesScreen());
-  if (data === 'mon:digest') return show(monitorDigestScreen());
+  if (data === 'mon:back' || data === 'auto:monitor') return show(await monitorScreen(data === 'auto:monitor' ? 'auto:home' : 'menu:back'));
+  if (data === 'mon:sources') return show(await monitorSourcesScreen());
+  if (data === 'mon:digest') return show(await monitorDigestScreen());
   if (data === 'mon:help') return show(monitorHelpScreen());
   if (data === 'mon:settings') return show(monitorSettingsScreen());
   if (data === 'mon:add-hint') {
     pending.set(chatId, 'mon-source');
     return show({
-      text: 'Пришли ссылку или @ник источника (YouTube, Twitter, GitHub, Telegram, RSS).',
-      keyboard: monitorSourcesScreen().keyboard,
+      text: 'Пришли ссылку или @ник источника (YouTube, X, GitHub, Telegram, RSS).',
+      keyboard: (await monitorSourcesScreen()).keyboard,
     });
   }
+  if (data.startsWith('mon:src-del:')) {
+    const rest = data.slice('mon:src-del:'.length);
+    const i = rest.indexOf(':');
+    const type = rest.slice(0, i);
+    const id = decodeURIComponent(rest.slice(i + 1));
+    await removeSource(type, id);
+    return show(await monitorSourcesScreen());
+  }
+  if (data === 'mon:digest-toggle') {
+    const { loadMonitorConfig } = await import('../monitor/config.mjs');
+    const cfg = await loadMonitorConfig();
+    await updateDigestSettings({ enabled: !(cfg.digest?.enabled !== false) });
+    return show(await monitorDigestScreen());
+  }
+  if (data.startsWith('mon:digest:time:set:')) {
+    await updateDigestSettings({ hour: Number(data.split(':').pop()) });
+    return show(await monitorDigestScreen());
+  }
+  if (data.startsWith('mon:digest:count:set:')) {
+    await updateDigestSettings({ topN: Number(data.split(':').pop()) });
+    return show(await monitorDigestScreen());
+  }
+  if (data === 'digest:now') {
+    const dig = await buildDigestText();
+    await bot.api.sendMessage(chatId, dig.text, { parse_mode: 'HTML' });
+    return show(await monitorDigestScreen());
+  }
+  if (data === 'mon:poll:all') {
+    await bot.api.sendMessage(chatId, '⏳ Собираю источники…');
+    const res = await pollAllSources();
+    await bot.api.sendMessage(
+      chatId,
+      `Готово: новых ${res.added}, ошибок ${res.errors.length}.`,
+    );
+    return show(await monitorScreen());
+  }
+  if (data.startsWith('mon:storage:set:')) {
+    const { loadMonitorConfig, saveMonitorConfig } = await import('../monitor/config.mjs');
+    const cfg = await loadMonitorConfig();
+    cfg.storage = data.split(':').pop();
+    await saveMonitorConfig(cfg);
+    return show(monitorSettingsScreen());
+  }
   if (
-    data.startsWith('mon:digest:') ||
     data.startsWith('mon:storage') ||
     data.startsWith('mon:model') ||
     data.startsWith('mon:notif') ||
     data.startsWith('mon:reportstyle') ||
     data.startsWith('mon:collection') ||
     data.startsWith('mon:balance') ||
-    data === 'mon:poll:all' ||
     data === 'mon:scored' ||
     data === 'mon:feed' ||
     data === 'mon:search' ||

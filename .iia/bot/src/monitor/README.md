@@ -1,11 +1,13 @@
-# Monitor (заготовка)
+# Monitor (open-core)
 
-В закрытом ядре: источники (YouTube/Twitter/GitHub/TG/RSS), дайджесты, storage sqlite/supabase.
+Данные: `~/.iia/monitor/config.json`, `items.jsonl`, `meta.json`.
 
-Перенос: ориентир `vendor/deobfuscated.js` (callback `mon:*`) + CHANGELOG 2.0.106+.
+Поддерживаемые источники:
+- RSS / Atom
+- YouTube (через channel RSS, `@handle` резолвится)
+- GitHub (releases.atom → commits.atom)
+- Telegram public (`t.me/s/…`)
+- X/Twitter (нужен `X_BEARER_TOKEN`)
 
-Планируемый API:
-
-- `src/monitor/sources.mjs` — CRUD источников
-- `src/monitor/digest.mjs` — сборка дайджеста через agent turn
-- `src/monitor/storage.mjs` — sqlite по умолчанию
+Сбор: каждые 5 минут + кнопка «Собрать всё сейчас».  
+Дайджест: по часу из настроек (TZ `IIA_TIMEZONE`) или «Прислать сейчас».

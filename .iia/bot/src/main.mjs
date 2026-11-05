@@ -5,8 +5,10 @@
 import { assertRuntimeConfig, readConfig } from './config.mjs';
 import { startHeartbeat } from './heartbeat.mjs';
 import { startScheduler } from './autonomy/scheduler.mjs';
+import { startMonitorScheduler } from './monitor/scheduler.mjs';
 import { createBot, runPolling } from './telegram/bot.mjs';
 import { ensureDir, botRoot, sessionDir, autonomyDir } from './paths.mjs';
+import { monitorDir } from './monitor/config.mjs';
 
 export async function main() {
   const cfg = readConfig();
@@ -16,10 +18,15 @@ export async function main() {
   ensureDir(botRoot());
   ensureDir(sessionDir());
   ensureDir(autonomyDir());
+  ensureDir(monitorDir());
 
   const heartbeat = startHeartbeat();
   const bot = createBot(cfg);
   const scheduler = startScheduler({
+    api: bot.api,
+    adminId: cfg.adminId,
+  });
+  const monitor = startMonitorScheduler({
     api: bot.api,
     adminId: cfg.adminId,
   });
@@ -32,6 +39,7 @@ export async function main() {
       /* ignore */
     }
     scheduler.stop();
+    monitor.stop();
     heartbeat.stop();
     process.exit(0);
   };

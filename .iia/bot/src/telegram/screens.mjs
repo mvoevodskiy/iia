@@ -5,6 +5,11 @@
 import { InlineKeyboard } from 'grammy';
 import { hasClaudeAuth, loadState, resolveModel } from '../state.mjs';
 import { listTasks } from '../autonomy/store.mjs';
+import { listSourcesFlat, loadMonitorConfig } from '../monitor/config.mjs';
+import { loadMeta } from '../monitor/store.mjs';
+import { listBots } from '../bots/manage.mjs';
+import { QUICK_KEYS, listEnvEntries } from '../env/store.mjs';
+import { checkOwnUpdates } from '../updates/client.mjs';
 import { escapeHtml } from './edit.mjs';
 import { CC_ONLY_OC_BLOCK } from './commands.mjs';
 
@@ -187,7 +192,8 @@ export function extrasScreen() {
 🌐 <b>SSH доступ к серверу</b> — ключи, файрвол, прямое подключение.
 ♻️ <b>Перезапустить бота</b> — нужен после обновления кода.
 🎤 <b>Расшифровка голоса</b> — Deepgram (облако, $200 в подарок).
-💾 <b>Хранилище мониторинга</b> — перенесено в меню Мониторинг → ⚙️ Настройки.`,
+📦 <b>Обновления</b> — свой канал (не vendor создателя).
+💾 <b>Хранилище мониторинга</b> — в Мониторинг → ⚙️ Настройки.`,
     keyboard: new InlineKeyboard()
       .text('🌐 SSH доступ к серверу', 'settings:ssh')
       .row()
@@ -195,7 +201,26 @@ export function extrasScreen() {
       .row()
       .text('🎤 Расшифровка голоса: Deepgram', 'settings:stt')
       .row()
+      .text('📦 Обновления', 'settings:updates')
+      .row()
       .text('« Назад', 'settings:back'),
+  };
+}
+
+export async function updatesScreen() {
+  const st = await checkOwnUpdates();
+  return {
+    text: `<b>📦 Обновления</b>
+
+Vendor-канал создателя закрытого ядра <b>отключён</b>.
+
+Свой сервис: <code>IIA_OWN_UPDATES_URL</code>
+Статус: ${escapeHtml(st.message)}
+${BLANK}`,
+    keyboard: new InlineKeyboard()
+      .text('🔄 Проверить', 'settings:updates')
+      .row()
+      .text('« Назад', 'settings:extras'),
   };
 }
 
@@ -223,38 +248,81 @@ ${BLANK}`,
   };
 }
 
-export function botsScreen() {
+export async function botsScreen() {
+  const bots = await listBots();
+  const lines = [
+    '<b>🤖 Мои боты</b>',
+    '',
+    'Несколько ботов на Claude Code на одном сервере: у каждого свой чат, свои настройки и характер.',
+    '',
+  ];
+  for (const b of bots) {
+    const mark = b.active === true ? '🟢' : b.active === false ? '🔴' : '⚪';
+    lines.push(`${mark} <b>${escapeHtml(b.botId)}</b>${b.here ? ' — ты здесь' : ''}`);
+  }
+  lines.push(BLANK);
+  const kb = new InlineKeyboard();
+  for (const b of bots) {
+    kb.text(b.botId, `settings:bots:bot:${b.botId}`).row();
+  }
+  kb.text('+ Добавить бота', 'settings:bots:add').row();
+  kb.text('🔄 Обновить', 'settings:bots:refresh').row();
+  kb.text('« Назад', 'settings:back');
+  return { text: lines.join('\n'), keyboard: kb };
+}
+
+export async function botDetailScreen(botId) {
+  const bots = await listBots();
+  const b = bots.find((x) => x.botId === botId);
+  const kb = new InlineKeyboard();
+  if (!b) {
+    return {
+      text: `<b>🤖 ${escapeHtml(botId)}</b>\n\nБот не найден на диске.`,
+      keyboard: new InlineKeyboard().text('« Назад', 'settings:bots'),
+    };
+  }
+  if (b.botId === 'default' || b.here) {
+    kb.text('« Назад', 'settings:bots');
+    return {
+      text: `<b>🤖 ${escapeHtml(b.botId)}</b>\n\n${
+        b.here ? 'Это текущий бот.' : 'Основной бот — его удалить нельзя.'
+      }\nСтатус: ${b.active ? 'active' : 'stopped/unknown'}`,
+      keyboard: kb,
+    };
+  }
+  kb.text('🗑 Удалить', `settings:bots:delete:${b.botId}`).row();
+  kb.text('« Назад', 'settings:bots');
   return {
-    text: `<b>🤖 Мои боты</b>
-
-Несколько ботов на Claude Code на одном сервере: у каждого свой чат в Telegram, свои настройки и характер.
-
-Список грузится с constructor API. В open-core без хаба список недоступен — используй <code>bot-ctl.sh</code> на сервере или iia-updates.
-${BLANK}`,
-    keyboard: new InlineKeyboard()
-      .text('🔄 Попробовать ещё раз', 'settings:bots:refresh')
-      .row()
-      .text('+ Добавить бота', 'settings:bots:add')
-      .row()
-      .text('« Назад', 'settings:back'),
+    text: `<b>🤖 ${escapeHtml(b.botId)}</b>\n\nСтатус: ${
+      b.active ? 'active' : 'stopped/unknown'
+    }\nМожно удалить, если больше не нужен.`,
+    keyboard: kb,
   };
 }
 
-export function envScreen() {
-  return {
-    text: `<b>🔑 Переменные окружения</b>
-
-Быстрые ключи для тулзов агента. Секреты пишутся в <code>.env</code> бота.
-${BLANK}`,
-    keyboard: new InlineKeyboard()
-      .text('➕ Deepgram', 'settings:env:quick:DEEPGRAM_API_KEY')
-      .row()
-      .text('➕ GitHub Fine-grained', 'settings:env:quick:GITHUB_TOKEN_FINE')
-      .row()
-      .text('➕ GitHub Classic', 'settings:env:quick:GITHUB_TOKEN_CLASSIC')
-      .row()
-      .text('« Назад', 'settings:back'),
-  };
+export async function envScreen() {
+  const entries = await listEnvEntries();
+  const lines = [
+    '<b>🔑 Переменные окружения</b>',
+    '',
+    `В <code>.env</code> бота сейчас ключей: ${entries.length}`,
+    '',
+  ];
+  for (const e of entries.slice(0, 25)) {
+    lines.push(`• <code>${escapeHtml(e.key)}</code> — ${escapeHtml(e.masked)}${e.protected ? ' 🔒' : ''}`);
+  }
+  if (entries.length > 25) lines.push(`… и ещё ${entries.length - 25}`);
+  lines.push(BLANK);
+  const kb = new InlineKeyboard();
+  for (const q of QUICK_KEYS.slice(0, 6)) {
+    kb.text(`➕ ${q.label}`, `settings:env:quick:${q.key}`).row();
+  }
+  kb.text('➕ Свой ключ', 'settings:env:add').row();
+  for (const e of entries.filter((x) => !x.protected).slice(0, 8)) {
+    kb.text(`🗑 ${e.key}`, `settings:env:delete:${e.key}`).row();
+  }
+  kb.text('« Назад', 'settings:back');
+  return { text: lines.join('\n'), keyboard: kb };
 }
 
 export function tzScreen(state) {
@@ -418,14 +486,44 @@ ${BLANK}`,
   };
 }
 
-export function monitorScreen(back = 'menu:back') {
+export async function monitorScreen(back = 'menu:back') {
+  const cfg = await loadMonitorConfig();
+  const meta = await loadMeta();
+  const sources = listSourcesFlat(cfg);
+  const broken = sources.filter((s) => {
+    const bucket = cfg[s.type];
+    const list =
+      s.type === 'youtube'
+        ? bucket.channels
+        : s.type === 'twitter'
+          ? bucket.accounts
+          : s.type === 'github'
+            ? bucket.repos
+            : s.type === 'telegram'
+              ? bucket.channels
+              : bucket.feeds;
+    const row = (list || []).find((x) => (x.url || x.username || x.channelId || x.handle || `${x.owner}/${x.repo}`) === s.id || x.name === s.name);
+    return Boolean(row?.lastError);
+  });
+  const lines = ['<b>📡 Мониторинг</b>', ''];
+  if (!sources.length) {
+    lines.push('Статус: нет источников.');
+    lines.push('');
+    lines.push('Добавь YouTube, X, GitHub, Telegram или RSS — бот будет собирать и присылать дайджест.');
+  } else if (broken.length) {
+    lines.push(`Статус: ⚠️ ${broken.length} источник(а) с ошибками`);
+    lines.push('Открой источники — там детали.');
+  } else {
+    lines.push(`Статус: ✔ ${sources.length} источник(ов)`);
+    const last = Object.values(meta.lastPollAt || {}).sort().slice(-1)[0];
+    if (last) lines.push(`Последний сбор: ${last.slice(0, 19).replace('T', ' ')}`);
+    lines.push(
+      `Дайджест: ${cfg.digest?.enabled ? `каждый день в ${cfg.digest.hour}:00` : 'выключен'} · top ${cfg.digest?.topN || 10}`,
+    );
+  }
+  lines.push(BLANK);
   return {
-    text: `<b>📡 Мониторинг</b>
-
-Статус: нет источников.
-
-Добавь YouTube, Twitter, GitHub, Telegram или RSS — бот будет собирать и присылать дайджест.
-${BLANK}`,
+    text: lines.join('\n'),
     keyboard: new InlineKeyboard()
       .text('🛰️ Источники', 'mon:sources')
       .text('📨 Дайджест', 'mon:digest')
@@ -437,32 +535,47 @@ ${BLANK}`,
   };
 }
 
-export function monitorSourcesScreen() {
-  return {
-    text: `<b>🛰️ Источники</b>
-
-Пока пусто.
-
-+ Добавить источник — пришли ссылку или @ник.
-${BLANK}`,
-    keyboard: new InlineKeyboard()
-      .text('+ Добавить источник', 'mon:add-hint')
-      .row()
-      .text('« Назад', 'mon:back'),
-  };
+export async function monitorSourcesScreen() {
+  const cfg = await loadMonitorConfig();
+  const sources = listSourcesFlat(cfg);
+  const kb = new InlineKeyboard();
+  let text;
+  if (!sources.length) {
+    text = `<b>🛰️ Источники</b>\n\nПока пусто.\n\n+ Добавить источник — пришли ссылку или @ник.\n${BLANK}`;
+  } else {
+    const lines = sources.map((s) => `• <b>${escapeHtml(s.type)}</b> ${escapeHtml(s.name)}`);
+    text = `<b>🛰️ Источники</b> (${sources.length})\n\n${lines.join('\n')}\n${BLANK}`;
+    for (const s of sources.slice(0, 20)) {
+      kb.text(`🗑 ${s.type}:${s.name}`.slice(0, 40), `mon:src-del:${s.type}:${encodeURIComponent(s.id)}`).row();
+    }
+  }
+  kb.text('+ Добавить источник', 'mon:add-hint').row();
+  kb.text('« Назад', 'mon:back');
+  return { text, keyboard: kb };
 }
 
-export function monitorDigestScreen() {
+export async function monitorDigestScreen() {
+  const cfg = await loadMonitorConfig();
+  const on = cfg.digest?.enabled !== false;
   return {
     text: `<b>📨 Дайджест</b>
 
-Пока выключен. Включи и укажи время — когда источники появятся, сводка будет приходить сама.
+Сейчас: <b>${on ? 'включён' : 'выключен'}</b>
+Время: <b>${cfg.digest?.hour ?? 9}:00</b> (${process.env.IIA_TIMEZONE || 'Europe/Moscow'})
+Материалов: <b>${cfg.digest?.topN ?? 10}</b>
 ${BLANK}`,
     keyboard: new InlineKeyboard()
-      .text('🕘 Время', 'mon:digest:time')
-      .text('🔢 Сколько материалов', 'mon:digest:count')
+      .text(on ? '⏸ Выключить' : '▶️ Включить', 'mon:digest-toggle')
       .row()
-      .text('📬 Куда присылать', 'mon:digest:target')
+      .text('🕘 8:00', 'mon:digest:time:set:8')
+      .text('🕘 9:00', 'mon:digest:time:set:9')
+      .text('🕘 18:00', 'mon:digest:time:set:18')
+      .row()
+      .text('🔢 10', 'mon:digest:count:set:10')
+      .text('🔢 15', 'mon:digest:count:set:15')
+      .text('🔢 25', 'mon:digest:count:set:25')
+      .row()
+      .text('📨 Прислать сейчас', 'digest:now')
       .row()
       .text('« Назад', 'mon:back'),
   };
@@ -480,17 +593,13 @@ ${BLANK}`,
 
 export function monitorSettingsScreen() {
   return {
-    text: `<b>⚙️ Настройки мониторинга</b>`,
+    text: `<b>⚙️ Настройки мониторинга</b>
+
+Хранилище по умолчанию — jsonl в <code>~/.iia/monitor/</code>.
+${BLANK}`,
     keyboard: new InlineKeyboard()
-      .text('💾 Хранилище', 'mon:storage')
-      .text('🤖 Модель скоринга', 'mon:model')
-      .row()
-      .text('🔔 Уведомления', 'mon:notif')
-      .text('🎨 Вид отчёта', 'mon:reportstyle')
-      .row()
-      .text('🔄 Интервалы сбора', 'mon:collection')
-      .row()
-      .text('💰 Баланс и лимиты', 'mon:balance')
+      .text('💾 jsonl', 'mon:storage:set:jsonl')
+      .text('💾 sqlite', 'mon:storage:set:sqlite')
       .row()
       .text('⚡ Собрать всё сейчас', 'mon:poll:all')
       .row()

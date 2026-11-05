@@ -26,7 +26,8 @@ test('settings buttons', () => {
 test('extras + monitor + autonomy callbacks', async () => {
   const e = extrasScreen();
   assert.ok(e.keyboard.inline_keyboard.flat().some((b) => b.callback_data === 'settings:ssh'));
-  const m = monitorScreen();
+  assert.ok(e.keyboard.inline_keyboard.flat().some((b) => b.callback_data === 'settings:updates'));
+  const m = await monitorScreen();
   assert.ok(m.keyboard.inline_keyboard.flat().some((b) => b.callback_data === 'mon:sources'));
   const a = await autonomyHomeScreen();
   assert.ok(a.keyboard.inline_keyboard.flat().some((b) => b.callback_data === 'auto:tasks'));

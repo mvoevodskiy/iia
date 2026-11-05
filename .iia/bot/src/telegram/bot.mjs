@@ -75,18 +75,20 @@ export function createBot(cfg) {
   });
 
   bot.command('monitor', async (ctx) => {
-    const view = monitorScreen();
+    const view = await monitorScreen();
     await ctx.reply(view.text, { parse_mode: 'HTML', reply_markup: view.keyboard });
   });
   bot.command('digest', async (ctx) => {
-    const view = monitorScreen();
-    await ctx.reply(view.text, { parse_mode: 'HTML', reply_markup: view.keyboard });
+    const { buildDigestText } = await import('../monitor/digest.mjs');
+    const dig = await buildDigestText();
+    await ctx.reply(dig.text, { parse_mode: 'HTML' });
   });
   bot.command('sources', async (ctx) => {
     const { monitorSourcesScreen } = await import('./screens.mjs');
-    const view = monitorSourcesScreen();
+    const view = await monitorSourcesScreen();
     await ctx.reply(view.text, { parse_mode: 'HTML', reply_markup: view.keyboard });
   });
+
 
   bot.command('stop', async (ctx) => {
     const ac = running.get(ctx.chat.id);
@@ -233,8 +235,9 @@ export function createBot(cfg) {
     if (pend?.startsWith('env:')) {
       pending.delete(chatId);
       const key = pend.slice(4);
-      await persistEnvKV(key, text.trim());
-      await ctx.reply(`Сохранил <code>${key}</code>.`, { parse_mode: 'HTML' });
+      const { setEnvKey } = await import('../env/store.mjs');
+      await setEnvKey(key, text.trim());
+      await ctx.reply(`Сохранил <code>${key}</code> в .env бота.`, { parse_mode: 'HTML' });
       return;
     }
     if (pend === 'feedback') {
@@ -261,23 +264,41 @@ export function createBot(cfg) {
       await ctx.reply(`✔ Проект <code>${name}</code> создан и активирован.`, { parse_mode: 'HTML' });
       return;
     }
-    if (pend === 'mon-source') {
-      pending.delete(chatId);
-      await ctx.reply(
-        'Источник принял. Полный collector мониторинга ещё переносится — ссылка сохранена в заметках владельца пока как текст задачи.',
-      );
-      await addTask({
-        title: `monitor:${text.trim().slice(0, 40)}`,
-        prompt: `Добавь и веди источник мониторинга: ${text.trim()}`,
-        everyHours: 24,
-        enabled: false,
-      });
-      return;
-    }
     if (pend === 'bot-token') {
       pending.delete(chatId);
+      await ctx.reply('⏳ Ставлю бота через bot-ctl…');
+      const { addBot } = await import('../bots/manage.mjs');
+      const res = await addBot(text.trim(), { ownerId: cfg.adminId });
+      if (res.ok) {
+        await ctx.reply(`✔ Бот <b>${res.botId}</b> добавлен и запущен.`, { parse_mode: 'HTML' });
+      } else {
+        await ctx.reply(`Не удалось добавить бота: ${res.error}`);
+      }
+      return;
+    }
+    if (pend === 'env-key-name') {
+      const key = text.trim().toUpperCase();
+      if (!/^[A-Z][A-Z0-9_]*$/.test(key)) {
+        await ctx.reply('Имя ключа: только A-Z, цифры и _.');
+        return;
+      }
+      pending.set(chatId, `env:${key}`);
+      await ctx.reply(`Ок. Пришли значение для <code>${key}</code>.`, { parse_mode: 'HTML' });
+      return;
+    }
+    if (pend === 'mon-source') {
+      pending.delete(chatId);
+      const { addSourceFromInput } = await import('../monitor/config.mjs');
+      const res = await addSourceFromInput(text);
+      if (!res.ok) {
+        await ctx.reply(res.error);
+        return;
+      }
       await ctx.reply(
-        'Токен получил. Создание второго бота идёт через constructor API / bot-ctl — в open-core без хаба добавь вручную: sudo bot-ctl / multibot install.',
+        res.added
+          ? `✔ Источник <b>${res.type}</b>: ${res.name}`
+          : `Уже был: <b>${res.type}</b> ${res.name}`,
+        { parse_mode: 'HTML' },
       );
       return;
     }
