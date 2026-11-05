@@ -151,9 +151,9 @@ test('setLocalSshHost persists and getLocalSshHost reads', async () => {
   await setLocalSshHost('192.168.1.10', env, home);
   assert.equal(getLocalSshHost(env), '192.168.1.10');
   const botEnv = await fs.readFile(path.join(home, '.iia', 'bots', 'default', '.env'), 'utf8');
-  assert.match(botEnv, /IIA_LOCAL_SSH_HOST=192\.168\.33\.203/);
+  assert.match(botEnv, /IIA_LOCAL_SSH_HOST=192\.168\.1\.10/);
   const globalEnv = await fs.readFile(path.join(home, '.iia', '.env'), 'utf8');
-  assert.match(globalEnv, /IIA_LOCAL_SSH_HOST=192\.168\.33\.203/);
+  assert.match(globalEnv, /IIA_LOCAL_SSH_HOST=192\.168\.1\.10/);
 });
 
 test('isLocalTarget treats loopback as local', async () => {
