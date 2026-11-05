@@ -9,7 +9,7 @@ import { syncExtAuthGate, EXT_AUTH_FLAG } from '../setup-bypass.mjs';
 import { botStatePath } from '../paths.mjs';
 
 async function tmpHome() {
-  return fs.mkdtemp(path.join(os.tmpdir(), 'iia-ext-bypass-'));
+  return fs.mkdtemp(path.join(os.tmpdir(), 'msb-ext-bypass-'));
 }
 
 async function readState(env, home) {
@@ -18,7 +18,7 @@ async function readState(env, home) {
 
 test('setup-bypass: cursor key sets subscription authMode', async () => {
   const home = await tmpHome();
-  const env = { IIA_BOT_ID: 'default' };
+  const env = { MSB_BOT_ID: 'default' };
   await writeEnvKey('CURSOR_API_KEY', 'cursor-test-key-xxxxxxxx', env, home);
   await setActive('cursor', env, home);
 
@@ -32,7 +32,7 @@ test('setup-bypass: cursor key sets subscription authMode', async () => {
 
 test('setup-bypass: switch to bare claude clears bypass', async () => {
   const home = await tmpHome();
-  const env = { IIA_BOT_ID: 'default' };
+  const env = { MSB_BOT_ID: 'default' };
   await writeEnvKey('CURSOR_API_KEY', 'cursor-test-key-xxxxxxxx', env, home);
   await setActive('cursor', env, home);
   await syncExtAuthGate(env, home);
@@ -47,7 +47,7 @@ test('setup-bypass: switch to bare claude clears bypass', async () => {
 
 test('setup-bypass: leaving codex drops foreign ext ccSessionId', async () => {
   const home = await tmpHome();
-  const env = { IIA_BOT_ID: 'default' };
+  const env = { MSB_BOT_ID: 'default' };
   await fs.mkdir(path.join(home, '.codex'), { recursive: true });
   await fs.writeFile(
     path.join(home, '.codex', 'auth.json'),
@@ -71,7 +71,7 @@ test('setup-bypass: leaving codex drops foreign ext ccSessionId', async () => {
 
 test('setup-bypass: noop on OpenClaw engine', async () => {
   const home = await tmpHome();
-  const env = { IIA_BOT_ID: 'default' };
+  const env = { MSB_BOT_ID: 'default' };
   await fs.mkdir(path.dirname(botStatePath(env, home)), { recursive: true });
   await fs.writeFile(
     botStatePath(env, home),

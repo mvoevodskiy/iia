@@ -4,17 +4,17 @@ import path from 'node:path';
 import { getProvider } from './providers.mjs';
 
 function botId(env = process.env) {
-  const id = (env.IIA_BOT_ID || 'default').trim();
+  const id = (env.MSB_BOT_ID || 'default').trim();
   return /^[a-zA-Z0-9_-]{1,32}$/.test(id) ? id : 'default';
 }
 
-/** Per-bot .env — как у штатного setEnvVar при IIA_BOT_ID. */
+/** Per-bot .env — как у штатного setEnvVar при MSB_BOT_ID. */
 export function botEnvPath(env = process.env, home = os.homedir()) {
-  return path.join(home, '.iia', 'bots', botId(env), '.env');
+  return path.join(home, '.msb', 'bots', botId(env), '.env');
 }
 
 export function globalEnvPath(home = os.homedir()) {
-  return path.join(home, '.iia', '.env');
+  return path.join(home, '.msb', '.env');
 }
 
 function parseEnvFile(text) {

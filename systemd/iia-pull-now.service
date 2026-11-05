@@ -1,8 +1,0 @@
-[Unit]
-Description=One-shot puller tick on delivery nudge trigger
-
-[Service]
-Type=oneshot
-ExecStartPre=-/bin/systemctl reset-failed iia-tick@puller.service
-ExecStartPre=/bin/rm -f /home/client/.iia/.pull-now
-ExecStart=/bin/systemctl start --no-block iia-tick@puller.service

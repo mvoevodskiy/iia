@@ -4,9 +4,9 @@
 #   merge-workspace-block.sh <file> <block-id> <block-body-file>
 #
 # Маркеры в <file>:
-#   <!-- IIA-SYSTEM-BLOCK:id -->
+#   <!-- MSB-SYSTEM-BLOCK:id -->
 #   ...
-#   <!-- /IIA-SYSTEM-BLOCK:id -->
+#   <!-- /MSB-SYSTEM-BLOCK:id -->
 #
 # Если блока нет — дописывается в конец файла. Если есть — содержимое между маркерами
 # заменяется. Текст вне маркеров не меняется.
@@ -19,8 +19,8 @@ BODY_FILE="${3:?body-file}"
 [[ -f "$BODY_FILE" ]] || { echo "нет body: $BODY_FILE" >&2; exit 1; }
 [[ "$BLOCK_ID" =~ ^[a-zA-Z0-9_-]+$ ]] || { echo "плохой block-id" >&2; exit 1; }
 
-START="<!-- IIA-SYSTEM-BLOCK:${BLOCK_ID} -->"
-END="<!-- /IIA-SYSTEM-BLOCK:${BLOCK_ID} -->"
+START="<!-- MSB-SYSTEM-BLOCK:${BLOCK_ID} -->"
+END="<!-- /MSB-SYSTEM-BLOCK:${BLOCK_ID} -->"
 BODY="$(cat "$BODY_FILE")"
 BLOCK="${START}
 ${BODY}

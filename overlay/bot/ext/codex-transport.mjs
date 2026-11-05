@@ -10,13 +10,13 @@ import os from 'node:os';
 import path from 'node:path';
 import { codexAuthPath, codexConfigPath, parseCodexTomlScalars } from './codex-native.mjs';
 
-export const IIA_HTTP_PROVIDER_ID = 'iia_http';
+export const MSB_HTTP_PROVIDER_ID = 'msb_http';
 
 const CHATGPT_BASE = 'https://chatgpt.com/backend-api/codex';
 const API_BASE = 'https://api.openai.com/v1';
 
-const MARK_BEGIN = '# BEGIN iia-ext codex-http';
-const MARK_END = '# END iia-ext codex-http';
+const MARK_BEGIN = '# BEGIN msb-ext codex-http';
+const MARK_END = '# END msb-ext codex-http';
 
 async function detectAuthMode(home) {
   try {
@@ -35,11 +35,11 @@ function providerBlock(baseUrl) {
   return [
     MARK_BEGIN,
     `# HTTP-only: без Responses WebSocket (см. openai/codex#20739, #22634)`,
-    `model_provider = "${IIA_HTTP_PROVIDER_ID}"`,
+    `model_provider = "${MSB_HTTP_PROVIDER_ID}"`,
     'stream_idle_timeout_ms = 600000',
     '',
-    `[model_providers.${IIA_HTTP_PROVIDER_ID}]`,
-    'name = "IIA HTTP (no websocket)"',
+    `[model_providers.${MSB_HTTP_PROVIDER_ID}]`,
+    'name = "MSB HTTP (no websocket)"',
     `base_url = ${JSON.stringify(baseUrl)}`,
     'wire_api = "responses"',
     'requires_openai_auth = true',
@@ -69,10 +69,10 @@ export async function ensureCodexStableTransport(home = os.homedir()) {
 
   const scalars = parseCodexTomlScalars(text);
   const currentProvider = scalars.model_provider || 'openai';
-  // Не перехватываем ollama/lmstudio/custom — только дефолтный openai и наш iia_http.
+  // Не перехватываем ollama/lmstudio/custom — только дефолтный openai и наш msb_http.
   const managed =
     !currentProvider ||
-    ['openai', IIA_HTTP_PROVIDER_ID, 'chatgpt', 'chatgpt-http', 'openai_http'].includes(currentProvider);
+    ['openai', MSB_HTTP_PROVIDER_ID, 'chatgpt', 'chatgpt-http', 'openai_http'].includes(currentProvider);
 
   let next = text;
   const begin = next.indexOf(MARK_BEGIN);
@@ -112,15 +112,15 @@ export async function ensureCodexStableTransport(home = os.homedir()) {
 
   return {
     ok: true,
-    providerId: managed ? IIA_HTTP_PROVIDER_ID : currentProvider,
+    providerId: managed ? MSB_HTTP_PROVIDER_ID : currentProvider,
     baseUrl: managed ? baseUrl : null,
     changed,
     skippedProviderSwitch: !managed,
   };
 }
 
-/** CLI `-c` для хода бота: принудительно HTTP-only, если блок iia_http на месте. */
+/** CLI `-c` для хода бота: принудительно HTTP-only, если блок msb_http на месте. */
 export function codexHttpProviderOverrides(force = true) {
   if (!force) return [];
-  return ['-c', `model_provider=${JSON.stringify(IIA_HTTP_PROVIDER_ID)}`];
+  return ['-c', `model_provider=${JSON.stringify(MSB_HTTP_PROVIDER_ID)}`];
 }

@@ -49,7 +49,7 @@ To                         Action      From
 
 test('shouldInterceptConstructorUrl only for ssh/multibot when host set', () => {
   const env = {
-    IIA_LOCAL_SSH_HOST: '192.168.1.10',
+    MSB_LOCAL_SSH_HOST: '192.168.1.10',
     SYNC_URL: 'https://constructor.example/api/sync',
   };
   assert.equal(
@@ -80,25 +80,25 @@ test('isValidLocalSshHost accepts ipv4 and hostname', () => {
   assert.equal(isValidLocalSshHost('127.0.0.1'), true);
   assert.equal(isValidLocalSshHost('192.168.1.10'), true);
   assert.equal(isValidLocalSshHost('localhost'), true);
-  assert.equal(isValidLocalSshHost('mp-iia'), true);
+  assert.equal(isValidLocalSshHost('mp-msb'), true);
   assert.equal(isValidLocalSshHost('999.1.1.1'), false);
   assert.equal(isValidLocalSshHost('not a host'), false);
 });
 
 test('local ssh status/keys against temp home', async () => {
-  const home = await fs.mkdtemp(path.join(os.tmpdir(), 'iia-local-ssh-'));
+  const home = await fs.mkdtemp(path.join(os.tmpdir(), 'msb-local-ssh-'));
   await fs.mkdir(path.join(home, '.ssh'), { recursive: true, mode: 0o700 });
   await fs.writeFile(
     path.join(home, '.ssh', 'authorized_keys'),
     'ssh-ed25519 AAAAtestkey comment-one\nssh-rsa AAAAsecond two\n',
     { mode: 0o600 },
   );
-  await fs.mkdir(path.join(home, '.iia', 'bots', 'default'), { recursive: true });
-  await fs.mkdir(path.join(home, '.iia', 'bots', 'personal'), { recursive: true });
+  await fs.mkdir(path.join(home, '.msb', 'bots', 'default'), { recursive: true });
+  await fs.mkdir(path.join(home, '.msb', 'bots', 'personal'), { recursive: true });
 
   const env = {
-    IIA_LOCAL_SSH_HOST: '127.0.0.1',
-    IIA_LOCAL_SSH_FORCE_LOCAL: '1',
+    MSB_LOCAL_SSH_HOST: '127.0.0.1',
+    MSB_LOCAL_SSH_FORCE_LOCAL: '1',
     SYNC_URL: 'https://constructor.example/api/sync',
   };
 
@@ -145,15 +145,15 @@ test('local ssh status/keys against temp home', async () => {
 });
 
 test('setLocalSshHost persists and getLocalSshHost reads', async () => {
-  const home = await fs.mkdtemp(path.join(os.tmpdir(), 'iia-local-ssh-env-'));
-  const env = { IIA_BOT_ID: 'default' };
-  await fs.mkdir(path.join(home, '.iia', 'bots', 'default'), { recursive: true });
+  const home = await fs.mkdtemp(path.join(os.tmpdir(), 'msb-local-ssh-env-'));
+  const env = { MSB_BOT_ID: 'default' };
+  await fs.mkdir(path.join(home, '.msb', 'bots', 'default'), { recursive: true });
   await setLocalSshHost('192.168.1.10', env, home);
   assert.equal(getLocalSshHost(env), '192.168.1.10');
-  const botEnv = await fs.readFile(path.join(home, '.iia', 'bots', 'default', '.env'), 'utf8');
-  assert.match(botEnv, /IIA_LOCAL_SSH_HOST=192\.168\.1\.10/);
-  const globalEnv = await fs.readFile(path.join(home, '.iia', '.env'), 'utf8');
-  assert.match(globalEnv, /IIA_LOCAL_SSH_HOST=192\.168\.1\.10/);
+  const botEnv = await fs.readFile(path.join(home, '.msb', 'bots', 'default', '.env'), 'utf8');
+  assert.match(botEnv, /MSB_LOCAL_SSH_HOST=192\.168\.1\.10/);
+  const globalEnv = await fs.readFile(path.join(home, '.msb', '.env'), 'utf8');
+  assert.match(globalEnv, /MSB_LOCAL_SSH_HOST=192\.168\.1\.10/);
 });
 
 test('isLocalTarget treats loopback as local', async () => {
@@ -162,9 +162,9 @@ test('isLocalTarget treats loopback as local', async () => {
 });
 
 test('buildLocalSshMenu mentions variable', async () => {
-  const menu = await buildLocalSshMenu({ IIA_LOCAL_SSH_HOST: '10.0.0.1' });
+  const menu = await buildLocalSshMenu({ MSB_LOCAL_SSH_HOST: '10.0.0.1' });
   assert.match(menu.text, /10\.0\.0\.1/);
-  assert.match(menu.text, /IIA_LOCAL_SSH_HOST/);
+  assert.match(menu.text, /MSB_LOCAL_SSH_HOST/);
   const flat = menu.keyboard.inline_keyboard.flat().map((b) => b.callback_data);
   assert.ok(flat.includes('ext:ssh:local:edit'));
   assert.ok(flat.includes('ext:ssh:local:clear'));
@@ -184,12 +184,12 @@ test('isValidBotId and buildAddTokenFileBody', () => {
 });
 
 test('local multibot add/remove via mocked bot-ctl', async () => {
-  const home = await fs.mkdtemp(path.join(os.tmpdir(), 'iia-local-ssh-add-'));
-  await fs.mkdir(path.join(home, '.iia', 'bots', 'default'), { recursive: true });
+  const home = await fs.mkdtemp(path.join(os.tmpdir(), 'msb-local-ssh-add-'));
+  await fs.mkdir(path.join(home, '.msb', 'bots', 'default'), { recursive: true });
 
   const env = {
-    IIA_LOCAL_SSH_HOST: '127.0.0.1',
-    IIA_LOCAL_SSH_FORCE_LOCAL: '1',
+    MSB_LOCAL_SSH_HOST: '127.0.0.1',
+    MSB_LOCAL_SSH_FORCE_LOCAL: '1',
     SYNC_URL: 'https://constructor.example/api/sync',
   };
 
@@ -202,11 +202,11 @@ test('local multibot add/remove via mocked bot-ctl', async () => {
       assert.match(body, /BOT_TOKEN=123456:AAAtesttokenvaluehere/);
       assert.match(body, /OWNER_USER_ID=99/);
       await fs.unlink(tokenFile);
-      await fs.mkdir(path.join(home, '.iia', 'bots', 'sales'), { recursive: true });
+      await fs.mkdir(path.join(home, '.msb', 'bots', 'sales'), { recursive: true });
       return { stdout: 'ok botId=sales\n', stderr: '' };
     }
     if (args.includes('remove')) {
-      await fs.rm(path.join(home, '.iia', 'bots', 'sales'), { recursive: true, force: true });
+      await fs.rm(path.join(home, '.msb', 'bots', 'sales'), { recursive: true, force: true });
       return { stdout: 'ok removed=sales\n', stderr: '' };
     }
     throw new Error(`unexpected ${cmd} ${args.join(' ')}`);

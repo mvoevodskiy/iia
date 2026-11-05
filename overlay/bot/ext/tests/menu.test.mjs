@@ -8,8 +8,8 @@ import { writeEnvKey } from '../env.mjs';
 import { buildConnMenu, buildModelMenu, buildAgentMenu, buildEffortMenu, authPrompt } from '../menu.mjs';
 
 test('buildConnMenu marks active provider and lists all four', async () => {
-  const home = await fs.mkdtemp(path.join(os.tmpdir(), 'iia-ext-'));
-  const env = { IIA_BOT_ID: 'default' };
+  const home = await fs.mkdtemp(path.join(os.tmpdir(), 'msb-ext-'));
+  const env = { MSB_BOT_ID: 'default' };
   await setActive('codex', env, home);
   await writeEnvKey('CODEX_ACCESS_TOKEN', 'codex-token-1234567890', env, home);
 
@@ -43,8 +43,8 @@ test('authPrompt for codex is native login, not secret paste', () => {
 });
 
 test('buildModelMenu for codex talks about Codex, not Claude', async () => {
-  const home = await fs.mkdtemp(path.join(os.tmpdir(), 'iia-ext-'));
-  const env = { IIA_BOT_ID: 'default' };
+  const home = await fs.mkdtemp(path.join(os.tmpdir(), 'msb-ext-'));
+  const env = { MSB_BOT_ID: 'default' };
   await setActive('codex', env, home);
   await fs.mkdir(path.join(home, '.codex'), { recursive: true });
   await fs.writeFile(
@@ -63,8 +63,8 @@ test('buildModelMenu for codex talks about Codex, not Claude', async () => {
 });
 
 test('buildAgentMenu and effort show Codex provider/model, not Claude', async () => {
-  const home = await fs.mkdtemp(path.join(os.tmpdir(), 'iia-ext-'));
-  const env = { IIA_BOT_ID: 'default' };
+  const home = await fs.mkdtemp(path.join(os.tmpdir(), 'msb-ext-'));
+  const env = { MSB_BOT_ID: 'default' };
   await setActive('codex', env, home);
   await fs.mkdir(path.join(home, '.codex'), { recursive: true });
   await fs.writeFile(
@@ -85,8 +85,8 @@ test('buildAgentMenu and effort show Codex provider/model, not Claude', async ()
 });
 
 test('buildAgentMenu returns null for claude (штатный экран)', async () => {
-  const home = await fs.mkdtemp(path.join(os.tmpdir(), 'iia-ext-'));
-  const env = { IIA_BOT_ID: 'default' };
+  const home = await fs.mkdtemp(path.join(os.tmpdir(), 'msb-ext-'));
+  const env = { MSB_BOT_ID: 'default' };
   await setActive('claude', env, home);
   assert.equal(await buildAgentMenu(env, home), null);
 });

@@ -1,4 +1,4 @@
-# Политика обновлений IIA на серверах
+# Политика обновлений MSB на серверах
 
 ## Принцип
 
@@ -12,8 +12,8 @@
 
 | Слой | Примеры | При обновлении |
 |------|---------|----------------|
-| **Система / бот** | `.iia/bot/index.js`, `bot/ext/**` (если так задумано), `puller.cjs`, `sync.cjs`, `guard/`, `dialogue-mcp/`, `/usr/local/bin/bot-ctl.sh`, `jarvis-engine`, unit’ы `iia-*` / `jarvis-engine*`, package-lock бота | Можно **заменять** целиком (с откатом по политике платформы) |
-| **Владелец / инстанс** | `workspace/CLAUDE.md`, `SOUL.md`, `USER.md`, `MEMORY.md`, `memory/**`, `ops/**` (учёт, реестры), `avatar/**`, `projects/**`, `.iia/.env`, `bots/<id>/.env`, `bots/<id>/state.json`, sessions/transcripts/traces, `ext-providers.json` | **Не перезаписывать** wholesale. Только seed при *первой* установке или явный запрос владельца |
+| **Система / бот** | `.msb/bot/index.js`, `bot/ext/**` (если так задумано), `puller.cjs`, `sync.cjs`, `guard/`, `dialogue-mcp/`, `/usr/local/bin/bot-ctl.sh`, `jarvis-engine`, unit’ы `msb-*` / `jarvis-engine*`, package-lock бота | Можно **заменять** целиком (с откатом по политике платформы) |
+| **Владелец / инстанс** | `workspace/CLAUDE.md`, `SOUL.md`, `USER.md`, `MEMORY.md`, `memory/**`, `ops/**` (учёт, реестры), `avatar/**`, `projects/**`, `.msb/.env`, `bots/<id>/.env`, `bots/<id>/state.json`, sessions/transcripts/traces, `ext-providers.json` | **Не перезаписывать** wholesale. Только seed при *первой* установке или явный запрос владельца |
 
 `bootstrap/install.sh` на уже живом сервере **не** должен молча делать `rsync --delete` по `workspace/`.  
 Повторный прогон: система — да; workspace — только если передан явный флаг вроде `--reset-workspace` (осознанный сброс).
@@ -26,9 +26,9 @@
 2. **Разрешено** умное обновление: вставить или обновить только блоки с маркерами:
 
 ```markdown
-<!-- IIA-SYSTEM-BLOCK:example-id -->
+<!-- MSB-SYSTEM-BLOCK:example-id -->
 …текст от платформы…
-<!-- /IIA-SYSTEM-BLOCK:example-id -->
+<!-- /MSB-SYSTEM-BLOCK:example-id -->
 ```
 
 3. Всё вне таких блоков — данные владельца; merge их не трогает.

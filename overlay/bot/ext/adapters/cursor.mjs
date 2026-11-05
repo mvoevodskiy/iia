@@ -75,7 +75,7 @@ export async function runCursorTurn({ prompt, parsed, cwd, env }) {
 
   const childEnv = { ...envPath, CURSOR_API_KEY: key };
   if (parsed?.resume && decoded?.providerId === 'cursor' && !resumeId) {
-    console.error(`[iia/ext/cursor] drop bad resume id → new chat`);
+    console.error(`[msb/ext/cursor] drop bad resume id → new chat`);
   }
   const res = await runCli(bin, args, { cwd, env: childEnv, forwardStderr: false });
   const parsedOut = parseCursorJsonOutput(res.stdout);

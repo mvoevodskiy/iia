@@ -6,7 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 test('enrichPath puts ext-tools and .local/bin first', () => {
-  const home = '/tmp/fake-home-iia';
+  const home = '/tmp/fake-home-msb';
   const p = enrichPath({ PATH: '/usr/bin' }, home);
   const parts = p.split(path.delimiter);
   assert.equal(parts[0], extToolsBin(home));

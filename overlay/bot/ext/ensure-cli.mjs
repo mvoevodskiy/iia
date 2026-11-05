@@ -1,6 +1,6 @@
 /**
  * Ставит CLI провайдера, если его нет в PATH.
- * Cursor — официальный install-скрипт; Codex/Qwen — npm в ~/.iia/ext-tools (без sudo).
+ * Cursor — официальный install-скрипт; Codex/Qwen — npm в ~/.msb/ext-tools (без sudo).
  */
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
@@ -11,7 +11,7 @@ import { extToolsBin, extToolsPrefix } from './paths.mjs';
 import { getProvider } from './providers.mjs';
 import { CODEX_NPM_SPEC } from './codex-native.mjs';
 
-const MARK = '[iia/ext/ensure-cli]';
+const MARK = '[msb/ext/ensure-cli]';
 
 function run(command, args, { cwd, env, timeoutMs = 600_000 } = {}) {
   return new Promise((resolve) => {
@@ -68,7 +68,7 @@ export function enrichPath(env = process.env, home = os.homedir()) {
 
 export function cliPresent(providerId, env = process.env) {
   const p = getProvider(providerId);
-  if (!p || p.id === 'claude') return { ok: true, bin: process.env.IIA_REAL_CLAUDE || 'claude' };
+  if (!p || p.id === 'claude') return { ok: true, bin: process.env.MSB_REAL_CLAUDE || 'claude' };
   const names = providerId === 'cursor' ? ['agent', 'cursor-agent'] : [p.bin];
   for (const name of names) {
     const hit = findBin(name, env);
@@ -134,7 +134,7 @@ async function installCursor(env, home) {
  * @returns {Promise<{ok:boolean, bin?:string, installed?:boolean, skipped?:boolean, error?:string}>}
  */
 export async function ensureProviderCli(providerId, { env = process.env, home = os.homedir(), force = false } = {}) {
-  if (providerId === 'claude') return { ok: true, skipped: true, bin: env.IIA_REAL_CLAUDE || 'claude' };
+  if (providerId === 'claude') return { ok: true, skipped: true, bin: env.MSB_REAL_CLAUDE || 'claude' };
 
   const envWithPath = { ...env, PATH: enrichPath(env, home) };
   if (!force) {

@@ -6,12 +6,12 @@ import { DEFAULT_PROVIDER, isProviderId } from './providers.mjs';
 const STORE_NAME = 'ext-providers.json';
 
 function botId(env = process.env) {
-  const id = (env.IIA_BOT_ID || 'default').trim();
+  const id = (env.MSB_BOT_ID || 'default').trim();
   return /^[a-zA-Z0-9_-]{1,32}$/.test(id) ? id : 'default';
 }
 
 export function storePath(env = process.env, home = os.homedir()) {
-  return path.join(home, '.iia', 'bots', botId(env), STORE_NAME);
+  return path.join(home, '.msb', 'bots', botId(env), STORE_NAME);
 }
 
 function emptyStore() {

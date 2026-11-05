@@ -1,6 +1,6 @@
 /**
  * Локальный обход constructor /api/ssh/* и /api/iia/multibot/*,
- * когда задан IIA_LOCAL_SSH_HOST (или LOCAL_SSH_HOST).
+ * когда задан MSB_LOCAL_SSH_HOST (или LOCAL_SSH_HOST).
  *
  * Зачем: конструктор SSHит на vps_ip (внешний). На LAN без проброса :22
  * с Railway это не доходит. Локальный IP — операции на этой машине
@@ -15,8 +15,8 @@ import { globalEnvPath, writeEnvKey } from './env.mjs';
 
 const execFileAsync = promisify(execFile);
 
-export const LOCAL_SSH_ENV_KEYS = ['IIA_LOCAL_SSH_HOST', 'LOCAL_SSH_HOST'];
-export const LOCAL_SSH_PRIMARY_KEY = 'IIA_LOCAL_SSH_HOST';
+export const LOCAL_SSH_ENV_KEYS = ['MSB_LOCAL_SSH_HOST', 'LOCAL_SSH_HOST'];
+export const LOCAL_SSH_PRIMARY_KEY = 'MSB_LOCAL_SSH_HOST';
 
 const pendingLocalIp = new Map(); // userId -> { chatId, messageId? }
 
@@ -48,7 +48,7 @@ export function isValidLocalSshHost(raw) {
 }
 
 export function constructorBaseUrl(env = process.env) {
-  const sync = String(env.SYNC_URL || env.IIA_SYNC_URL || '').trim();
+  const sync = String(env.SYNC_URL || env.MSB_SYNC_URL || '').trim();
   if (!sync) return '';
   return sync.replace(/\/api\/sync\/?$/, '');
 }
@@ -91,7 +91,7 @@ export async function isLocalTarget(host, env = process.env) {
   const locals = await listLocalIps();
   if (locals.has(host) || locals.has(h)) return true;
   // явный флаг «всегда локально»
-  if (env.IIA_LOCAL_SSH_FORCE_LOCAL === '1') return true;
+  if (env.MSB_LOCAL_SSH_FORCE_LOCAL === '1') return true;
   return false;
 }
 
@@ -178,7 +178,7 @@ async function ufwStatus() {
 }
 
 async function listBotIds(home = os.homedir()) {
-  const dir = path.join(home, '.iia', 'bots');
+  const dir = path.join(home, '.msb', 'bots');
   try {
     const ents = await fs.readdir(dir, { withFileTypes: true });
     return ents.filter((e) => e.isDirectory()).map((e) => e.name).sort((a, b) => {
@@ -218,7 +218,7 @@ export function buildAddTokenFileBody({ botToken, ownerUserId } = {}) {
 }
 
 async function writeAddTokenFile(botId, body, home = os.homedir()) {
-  const dir = path.join(home, '.iia', 'tmp');
+  const dir = path.join(home, '.msb', 'tmp');
   await fs.mkdir(dir, { recursive: true, mode: 0o700 });
   const file = path.join(dir, `add-bot-${botId}.${process.pid}.env`);
   await fs.writeFile(file, body, { mode: 0o600 });
@@ -307,7 +307,7 @@ export async function handleLocalConstructorRequest(url, init = {}, opts = {}) {
   const home = opts.home || os.homedir();
   const host = getLocalSshHost(env);
   if (!host) {
-    return jsonResponse(503, { ok: false, error: 'IIA_LOCAL_SSH_HOST не задан' });
+    return jsonResponse(503, { ok: false, error: 'MSB_LOCAL_SSH_HOST не задан' });
   }
 
   const u = new URL(String(url));
@@ -326,7 +326,7 @@ export async function handleLocalConstructorRequest(url, init = {}, opts = {}) {
     return jsonResponse(501, {
       ok: false,
       error:
-        `IIA_LOCAL_SSH_HOST=${host} не является адресом этой машины. ` +
+        `MSB_LOCAL_SSH_HOST=${host} не является адресом этой машины. ` +
         'Пока поддерживается только локальный IP/hostname (127.0.0.1, LAN-адрес сервера).',
     });
   }
@@ -472,18 +472,18 @@ export function installLocalSshFetchPatch(env = process.env) {
     return originalFetch(input, init);
   };
   if (getLocalSshHost(env)) {
-    console.error(`[iia/ext] local SSH host → ${getLocalSshHost(env)} (constructor /api/ssh + multibot)`);
+    console.error(`[msb/ext] local SSH host → ${getLocalSshHost(env)} (constructor /api/ssh + multibot)`);
   }
 }
 
-/** Подтянуть IIA_LOCAL_SSH_HOST из файлов .env в process.env (если ещё пусто). */
+/** Подтянуть MSB_LOCAL_SSH_HOST из файлов .env в process.env (если ещё пусто). */
 export async function hydrateLocalSshHost(env = process.env, home = os.homedir()) {
   if (getLocalSshHost(env)) return getLocalSshHost(env);
-  for (const file of [path.join(home, '.iia', 'bots', env.IIA_BOT_ID || 'default', '.env'), globalEnvPath(home)]) {
+  for (const file of [path.join(home, '.msb', 'bots', env.MSB_BOT_ID || 'default', '.env'), globalEnvPath(home)]) {
     try {
       const text = await fs.readFile(file, 'utf8');
       for (const line of text.split(/\n/)) {
-        const m = line.match(/^(?:IIA_LOCAL_SSH_HOST|LOCAL_SSH_HOST)=(.*)$/);
+        const m = line.match(/^(?:MSB_LOCAL_SSH_HOST|LOCAL_SSH_HOST)=(.*)$/);
         if (!m) continue;
         const v = m[1].trim().replace(/^["']|["']$/g, '');
         if (!v) continue;

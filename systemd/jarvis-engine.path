@@ -5,11 +5,11 @@ Description=jarvis-engine: watch the owner's bots' request files
 # Each bot writes ONE JSON request into its own directory; this root-side watcher starts the helper, which
 # deletes the file first and acts only on a closed list of actions.
 # StartLimitBurst=0: a stream of garbage requests must never park this unit (same reason as
-# iia-pull-now.path). The helper rate-limits requests itself.
+# msb-pull-now.path). The helper rate-limits requests itself.
 StartLimitBurst=0
 
 [Path]
-PathExists=/home/client/.iia/engine/request
+PathExists=/home/client/.msb/engine/request
 PathExists=/home/openclaw/.jarvis-engine/request
 Unit=jarvis-engine.service
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# overlay/install.sh — наложить обвязку CLI на уже установленное ядро IIA.
+# overlay/install.sh — наложить обвязку CLI на уже установленное ядро MSB.
 # Не ставит ядро. Не трогает workspace и продукты владельца.
 set -euo pipefail
 
@@ -15,7 +15,7 @@ Usage: overlay/install.sh [options]
 
   --source DIR     корень репо (по умолчанию: родитель overlay/)
   --target DIR     home пользователя бота (по умолчанию: /home/client)
-  --skip-restart   не перезапускать iia-bot@*
+  --skip-restart   не перезапускать msb-bot@*
   --dry-run
   -h, --help
 EOF
@@ -36,7 +36,7 @@ need() { command -v "$1" >/dev/null || { echo "нужен $1" >&2; exit 1; }; }
 need rsync
 need install
 
-BOT_DST="$TARGET/.iia/bot"
+BOT_DST="$TARGET/.msb/bot"
 [[ -f "$BOT_DST/index.js" ]] || { echo "нет ядра: $BOT_DST/index.js — сначала bootstrap/install.sh" >&2; exit 1; }
 [[ -d "$SOURCE/overlay/bot/ext" ]] || { echo "нет $SOURCE/overlay/bot/ext" >&2; exit 1; }
 
@@ -60,7 +60,7 @@ if [[ -f "$SOURCE/overlay/usr-local-bin/bot-ctl.sh" ]]; then
   run install -m 0755 "$SOURCE/overlay/usr-local-bin/bot-ctl.sh" /usr/local/bin/bot-ctl.sh
 fi
 
-DROP_DIR=/etc/systemd/system/iia-bot@.service.d
+DROP_DIR=/etc/systemd/system/msb-bot@.service.d
 run mkdir -p "$DROP_DIR"
 run install -m 0644 "$SOURCE/overlay/bot/systemd/60-ext-entry.conf" "$DROP_DIR/60-ext-entry.conf"
 

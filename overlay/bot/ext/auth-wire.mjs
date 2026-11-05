@@ -17,12 +17,12 @@ function qwenBaseUrl(key) {
     return 'https://token-plan.maas.qwencloudapi.com/compatible-mode/v1';
   }
   // Coding Plan
-  if (k.startsWith('sk-') && process.env.IIA_QWEN_CODING_PLAN === '1') {
+  if (k.startsWith('sk-') && process.env.MSB_QWEN_CODING_PLAN === '1') {
     return 'https://coding-intl.dashscope.aliyuncs.com/v1';
   }
   // Default: DashScope international compatible
   return (
-    process.env.IIA_QWEN_BASE_URL ||
+    process.env.MSB_QWEN_BASE_URL ||
     'https://dashscope-intl.aliyuncs.com/compatible-mode/v1'
   );
 }
@@ -38,7 +38,7 @@ export async function wireQwenAuth(apiKey, home = os.homedir()) {
           id: 'qwen3-coder-plus',
           name: 'qwen3-coder-plus',
           baseUrl,
-          description: 'Qwen via IIA ext menu',
+          description: 'Qwen via MSB ext menu',
           envKey: 'DASHSCOPE_API_KEY',
         },
       ],

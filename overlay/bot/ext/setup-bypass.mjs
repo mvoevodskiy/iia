@@ -13,7 +13,7 @@ import { providerConfigured } from './env.mjs';
 import { loadStore } from './store.mjs';
 import { botStatePath } from './paths.mjs';
 
-const MARK = '[iia/ext/setup-bypass]';
+const MARK = '[msb/ext/setup-bypass]';
 export const EXT_AUTH_FLAG = 'extAuthBypass';
 
 async function readState(env, home) {
@@ -36,7 +36,7 @@ async function writeState(file, state) {
 async function hasClaudeCreds(env) {
   return !!(
     env.CLAUDE_CODE_OAUTH_TOKEN?.trim() ||
-    env.IIA_ANTHROPIC_API_KEY?.trim() ||
+    env.MSB_ANTHROPIC_API_KEY?.trim() ||
     env.ANTHROPIC_API_KEY?.trim()
   );
 }

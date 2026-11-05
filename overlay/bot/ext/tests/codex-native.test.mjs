@@ -26,7 +26,7 @@ test('CODEX version pinned to 0.166.0', () => {
 });
 
 test('hasNativeCodexAuth detects tokens without exposing secrets', async () => {
-  const home = await fs.mkdtemp(path.join(os.tmpdir(), 'iia-codex-'));
+  const home = await fs.mkdtemp(path.join(os.tmpdir(), 'msb-codex-'));
   assert.equal(await hasNativeCodexAuth(home), false);
   await fs.mkdir(path.join(home, '.codex'), { recursive: true });
   await fs.writeFile(
@@ -38,7 +38,7 @@ test('hasNativeCodexAuth detects tokens without exposing secrets', async () => {
     { mode: 0o600 },
   );
   assert.equal(await hasNativeCodexAuth(home), true);
-  assert.equal(await providerConfigured(getProvider('codex'), { IIA_BOT_ID: 'default' }, home), true);
+  assert.equal(await providerConfigured(getProvider('codex'), { MSB_BOT_ID: 'default' }, home), true);
 });
 
 test('parseCodexTomlScalars reads model and effort', () => {
@@ -64,7 +64,7 @@ test('resolveCodexModel drops Claude aliases, prefers native config', async () =
   );
   assert.equal(resolveCodexEffort({ modelReasoningEffort: 'high' }), 'high');
 
-  const home = await fs.mkdtemp(path.join(os.tmpdir(), 'iia-codex-cfg-'));
+  const home = await fs.mkdtemp(path.join(os.tmpdir(), 'msb-codex-cfg-'));
   await fs.mkdir(path.join(home, '.codex'), { recursive: true });
   await fs.writeFile(
     path.join(home, '.codex', 'config.toml'),
@@ -136,7 +136,7 @@ test('buildCodexExecArgs sets full access + never approvals + model/effort + htt
   assert.ok(args.includes('approval_policy="never"'));
   assert.ok(args.includes('model_reasoning_effort="high"'));
   assert.ok(args.includes('gpt-6.1-sol'));
-  assert.ok(args.some((a) => String(a).includes('iia_http')));
+  assert.ok(args.some((a) => String(a).includes('msb_http')));
   const resumeAt = args.indexOf('resume');
   assert.ok(resumeAt > 0);
   assert.equal(args[resumeAt + 1], '0199a213-81c0-7800-8aa1-bbab2a035a53');

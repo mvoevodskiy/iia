@@ -1,9 +1,9 @@
 #!/bin/bash
 #
-# bot-ctl.sh — controlled wrapper for systemctl operations on iia-bot instances.
+# bot-ctl.sh — controlled wrapper for systemctl operations on msb-bot instances.
 #
 # After multi-bot lands, a VPS may run several systemd template instances
-# (iia-bot@default, iia-bot@visual, iia-bot@text, ...). Sudoers does not support
+# (msb-bot@default, msb-bot@visual, msb-bot@text, ...). Sudoers does not support
 # globs in unit names, so granting the client user broad systemctl access would
 # be required to manage them. Instead, this script provides a narrow gate:
 # sudoers allows /usr/local/bin/bot-ctl.sh *, and the script itself validates
@@ -14,19 +14,19 @@
 #     action: restart | reload | stop | status | is-active | reset-failed
 #             | add | remove
 #     bot-id: optional — defaults to "default". Must match [a-zA-Z0-9_-]{1,32}.
-#             Special: "all" — every dir under /home/client/.iia/bots (multi-bot only).
-#             Ignored on legacy single-bot VPS (target is always iia-bot).
+#             Special: "all" — every dir under /home/client/.msb/bots (multi-bot only).
+#             Ignored on legacy single-bot VPS (target is always msb-bot).
 #     token-file (add only): path to a mode-600 file with BOT_TOKEN=... and
 #             optional OWNER_USER_ID=... (written by local-ssh; deleted after read).
 #
 # Examples:
-#   bot-ctl.sh restart             # legacy: systemctl restart iia-bot
-#                                  # multi-bot: systemctl restart iia-bot@default
+#   bot-ctl.sh restart             # legacy: systemctl restart msb-bot
+#                                  # multi-bot: systemctl restart msb-bot@default
 #   bot-ctl.sh reload              # light signal (v1: aliases to restart)
-#   bot-ctl.sh restart visual      # systemctl restart iia-bot@visual
+#   bot-ctl.sh restart visual      # systemctl restart msb-bot@visual
 #   bot-ctl.sh restart all         # all bots on this box (shared code apply)
-#   bot-ctl.sh status text         # systemctl status iia-bot@text
-#   bot-ctl.sh add sales /tmp/iia-add-sales.env
+#   bot-ctl.sh status text         # systemctl status msb-bot@text
+#   bot-ctl.sh add sales /tmp/msb-add-sales.env
 #   bot-ctl.sh remove sales
 #
 # Exit codes:
@@ -39,7 +39,7 @@ set -euo pipefail
 ACTION="${1:-}"
 BOT_ID="${2:-default}"
 TOKEN_FILE="${3:-}"
-BOTS_ROOT="/home/client/.iia/bots"
+BOTS_ROOT="/home/client/.msb/bots"
 WORKSPACE="/home/client/workspace"
 CLIENT_USER="client"
 
@@ -48,7 +48,7 @@ CLIENT_USER="client"
 # the bot reloads menu/skill/config files without dropping active sessions.
 # Puller-side contract uses `reload` semantically already; bot-track flips the
 # alias when it implements SIGHUP-based reload.
-# `add` / `remove` — local multibot (IIA_LOCAL_SSH_HOST), without SSH from hub.
+# `add` / `remove` — local multibot (MSB_LOCAL_SSH_HOST), without SSH from hub.
 case " restart reload stop status is-active reset-failed add remove " in
   *" $ACTION "*) ;;
   *)
@@ -70,15 +70,15 @@ fi
 # sudo bot-ctl (local SSH mode). Only the differing per-bot keys go into .env.
 
 ensure_multibot_template() {
-  if [ ! -f /etc/systemd/system/iia-bot@.service ]; then
-    echo "bot-ctl: нет шаблона iia-bot@.service — multi-bot недоступен" >&2
+  if [ ! -f /etc/systemd/system/msb-bot@.service ]; then
+    echo "bot-ctl: нет шаблона msb-bot@.service — multi-bot недоступен" >&2
     exit 64
   fi
 }
 
 fstab_line_for() {
   local id="$1"
-  printf '%s  %s/bots/%s/cwd  none  bind,nofail  0  0\n' "$WORKSPACE" "/home/client/.iia" "$id"
+  printf '%s  %s/bots/%s/cwd  none  bind,nofail  0  0\n' "$WORKSPACE" "/home/client/.msb" "$id"
 }
 
 add_bot_instance() {
@@ -130,15 +130,15 @@ add_bot_instance() {
 
   {
     echo "# Per-bot env — ONLY keys that must differ between bots."
-    echo "# Shared secrets belong in /home/client/.iia/.env. Do NOT copy them here:"
+    echo "# Shared secrets belong in /home/client/.msb/.env. Do NOT copy them here:"
     echo "# systemd loads this file before the bot starts, so a copy here silently"
     echo "# overrides the shared file forever, including after the key is rotated."
     echo "BOT_TOKEN=${token}"
-    echo "IIA_BOT_ID=${id}"
-    echo "IIA_SESSION_DIR=${bot_dir}/sessions"
-    echo "IIA_TRANSCRIPT_DIR=${bot_dir}/transcripts"
-    echo "IIA_HOOKS_DIR=${bot_dir}/agent-hooks"
-    echo "IIA_TRACES_DIR=${bot_dir}/traces"
+    echo "MSB_BOT_ID=${id}"
+    echo "MSB_SESSION_DIR=${bot_dir}/sessions"
+    echo "MSB_TRANSCRIPT_DIR=${bot_dir}/transcripts"
+    echo "MSB_HOOKS_DIR=${bot_dir}/agent-hooks"
+    echo "MSB_TRACES_DIR=${bot_dir}/traces"
     if [ -n "$owner" ]; then
       echo "OWNER_USER_ID=${owner}"
     fi
@@ -169,18 +169,18 @@ JSON
   fi
 
   /bin/systemctl daemon-reload
-  /bin/systemctl reset-failed "iia-bot@${id}" 2>/dev/null || true
-  /bin/systemctl enable --now "iia-bot@${id}"
+  /bin/systemctl reset-failed "msb-bot@${id}" 2>/dev/null || true
+  /bin/systemctl enable --now "msb-bot@${id}"
 
   local state=inactive i
   for i in $(seq 1 60); do
-    state=$(/bin/systemctl is-active "iia-bot@${id}" 2>/dev/null || echo inactive)
+    state=$(/bin/systemctl is-active "msb-bot@${id}" 2>/dev/null || echo inactive)
     [ "$state" = "active" ] && break
     sleep 1
   done
   if [ "$state" != "active" ]; then
-    echo "bot-ctl: iia-bot@${id} не стал active за 60с (state=${state})" >&2
-    /bin/journalctl -u "iia-bot@${id}" --no-pager -n 30 >&2 || true
+    echo "bot-ctl: msb-bot@${id} не стал active за 60с (state=${state})" >&2
+    /bin/journalctl -u "msb-bot@${id}" --no-pager -n 30 >&2 || true
     exit 1
   fi
   echo "ok botId=${id}"
@@ -202,8 +202,8 @@ remove_bot_instance() {
     exit 64
   fi
 
-  /bin/systemctl disable --now "iia-bot@${id}" 2>/dev/null || true
-  /bin/systemctl reset-failed "iia-bot@${id}" 2>/dev/null || true
+  /bin/systemctl disable --now "msb-bot@${id}" 2>/dev/null || true
+  /bin/systemctl reset-failed "msb-bot@${id}" 2>/dev/null || true
 
   cwd="${bot_dir}/cwd"
   if findmnt -n "$cwd" >/dev/null 2>&1; then
@@ -264,21 +264,21 @@ case "$ACTION" in
 esac
 
 # Pick the target unit. On a multi-bot VPS the template file exists; legacy
-# single-bot VPS only have iia-bot.service.
-if [ -f /etc/systemd/system/iia-bot@.service ]; then
-  UNIT="iia-bot@${BOT_ID}"
+# single-bot VPS only have msb-bot.service.
+if [ -f /etc/systemd/system/msb-bot@.service ]; then
+  UNIT="msb-bot@${BOT_ID}"
 else
-  UNIT="iia-bot"
+  UNIT="msb-bot"
 fi
 
-# Fan-out: shared code lives once under ~/.iia/bot — after apply/restart every
+# Fan-out: shared code lives once under ~/.msb/bot — after apply/restart every
 # instance must pick it up. status/is-active on "all" print one line per bot.
 if [ "$BOT_ID" = "all" ]; then
-  if [ ! -f /etc/systemd/system/iia-bot@.service ]; then
+  if [ ! -f /etc/systemd/system/msb-bot@.service ]; then
     if [ "$ACTION" = "reload" ]; then
-      exec /bin/systemctl restart iia-bot
+      exec /bin/systemctl restart msb-bot
     fi
-    exec /bin/systemctl "$ACTION" iia-bot
+    exec /bin/systemctl "$ACTION" msb-bot
   fi
   ids=()
   if [ -d "$BOTS_ROOT" ]; then
@@ -307,9 +307,9 @@ if [ "$BOT_ID" = "all" ]; then
   for id in "${ids[@]}"; do
     if [ "$ACTION" = "status" ] || [ "$ACTION" = "is-active" ]; then
       echo -n "$id "
-      /bin/systemctl "$sys_action" "iia-bot@$id" || ec=$?
+      /bin/systemctl "$sys_action" "msb-bot@$id" || ec=$?
     else
-      /bin/systemctl "$sys_action" "iia-bot@$id" || ec=$?
+      /bin/systemctl "$sys_action" "msb-bot@$id" || ec=$?
     fi
   done
   exit "$ec"

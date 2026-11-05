@@ -62,7 +62,7 @@ import {
 } from './local-ssh.mjs';
 import { buildLocalSshMenu, localSshPrompt } from './menu.mjs';
 
-const EXT_MARKER = '[iia/ext]';
+const EXT_MARKER = '[msb/ext]';
 let prepared = false;
 
 function ccOnly() {
@@ -236,8 +236,8 @@ async function showLocalAwareSshHome(bot, chatId, messageId) {
       }
     } else {
       // без локального IP — штатный путь через constructor (может упасть на LAN)
-      const syncUrl = process.env.SYNC_URL || process.env.IIA_SYNC_URL || '';
-      const syncKey = process.env.SYNC_KEY || process.env.IIA_SYNC_KEY || '';
+      const syncUrl = process.env.SYNC_URL || process.env.MSB_SYNC_URL || '';
+      const syncKey = process.env.SYNC_KEY || process.env.MSB_SYNC_KEY || '';
       if (!syncUrl || !syncKey || !base) {
         statusText = '⚠️ SYNC_URL/SYNC_KEY не настроены';
       } else {
@@ -602,7 +602,7 @@ async function handleLocalSshIpMessage(bot, msg) {
       `✔ Локальный SSH IP: <code>${text}</code>\n\n${menu.text}`,
       { parse_mode: 'HTML', reply_markup: menu.keyboard },
     );
-    console.error(`${EXT_MARKER} IIA_LOCAL_SSH_HOST → ${text}`);
+    console.error(`${EXT_MARKER} MSB_LOCAL_SSH_HOST → ${text}`);
   } catch (err) {
     await bot.api.sendMessage(chatId, `❌ ${String(err.message || err).slice(0, 200)}`);
   }

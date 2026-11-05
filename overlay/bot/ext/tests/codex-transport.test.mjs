@@ -5,13 +5,13 @@ import os from 'node:os';
 import path from 'node:path';
 import {
   ensureCodexStableTransport,
-  IIA_HTTP_PROVIDER_ID,
+  MSB_HTTP_PROVIDER_ID,
   codexHttpProviderOverrides,
 } from '../codex-transport.mjs';
 import { parseCodexStdout, buildCodexExecArgs, isCodexStreamCutMessage } from '../adapters/codex.mjs';
 
 test('ensureCodexStableTransport writes HTTP-only provider for ChatGPT auth', async () => {
-  const home = await fs.mkdtemp(path.join(os.tmpdir(), 'iia-codex-tr-'));
+  const home = await fs.mkdtemp(path.join(os.tmpdir(), 'msb-codex-tr-'));
   await fs.mkdir(path.join(home, '.codex'), { recursive: true });
   await fs.writeFile(
     path.join(home, '.codex', 'auth.json'),
@@ -22,10 +22,10 @@ test('ensureCodexStableTransport writes HTTP-only provider for ChatGPT auth', as
 
   const r = await ensureCodexStableTransport(home);
   assert.equal(r.ok, true);
-  assert.equal(r.providerId, IIA_HTTP_PROVIDER_ID);
+  assert.equal(r.providerId, MSB_HTTP_PROVIDER_ID);
   assert.match(r.baseUrl, /chatgpt\.com/);
   const toml = await fs.readFile(path.join(home, '.codex', 'config.toml'), 'utf8');
-  assert.match(toml, /model_provider = "iia_http"/);
+  assert.match(toml, /model_provider = "msb_http"/);
   assert.match(toml, /supports_websockets = false/);
   assert.match(toml, /stream_idle_timeout_ms = 600000/);
   assert.match(toml, /model = "gpt-6.1-sol"/);
@@ -35,7 +35,7 @@ test('ensureCodexStableTransport writes HTTP-only provider for ChatGPT auth', as
 });
 
 test('ensureCodexStableTransport uses api.openai.com for api_key auth', async () => {
-  const home = await fs.mkdtemp(path.join(os.tmpdir(), 'iia-codex-tr-api-'));
+  const home = await fs.mkdtemp(path.join(os.tmpdir(), 'msb-codex-tr-api-'));
   await fs.mkdir(path.join(home, '.codex'), { recursive: true });
   await fs.writeFile(
     path.join(home, '.codex', 'auth.json'),
@@ -46,9 +46,9 @@ test('ensureCodexStableTransport uses api.openai.com for api_key auth', async ()
   assert.match(r.baseUrl, /api\.openai\.com/);
 });
 
-test('buildCodexExecArgs forces iia_http provider', () => {
+test('buildCodexExecArgs forces msb_http provider', () => {
   const args = buildCodexExecArgs({ model: 'gpt-6.1-sol', effort: 'high', forceHttp: true });
-  assert.ok(args.includes(`model_provider="${IIA_HTTP_PROVIDER_ID}"`) || args.some((a) => a.includes('iia_http')));
+  assert.ok(args.includes(`model_provider="${MSB_HTTP_PROVIDER_ID}"`) || args.some((a) => a.includes('msb_http')));
   assert.deepEqual(codexHttpProviderOverrides(true).slice(0, 1), ['-c']);
 });
 

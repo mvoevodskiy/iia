@@ -6,7 +6,7 @@ import path from 'node:path';
 import { wireQwenAuth, wireCodexAuth, codexLoginStatus } from '../auth-wire.mjs';
 
 test('wireQwenAuth writes settings.json and .env for sk-sp token plan', async () => {
-  const home = await fs.mkdtemp(path.join(os.tmpdir(), 'iia-qwen-'));
+  const home = await fs.mkdtemp(path.join(os.tmpdir(), 'msb-qwen-'));
   const key = 'sk-sp-testkey1234567890';
   const r = await wireQwenAuth(key, home);
   assert.match(r.baseUrl, /token-plan/);
@@ -18,13 +18,13 @@ test('wireQwenAuth writes settings.json and .env for sk-sp token plan', async ()
 });
 
 test('wireQwenAuth uses dashscope for plain sk-', async () => {
-  const home = await fs.mkdtemp(path.join(os.tmpdir(), 'iia-qwen-'));
+  const home = await fs.mkdtemp(path.join(os.tmpdir(), 'msb-qwen-'));
   const r = await wireQwenAuth('sk-plainkey1234567890', home);
   assert.match(r.baseUrl, /dashscope/);
 });
 
 test('wireCodexAuth fails closed when CLI missing (не объявляет успех)', async () => {
-  const home = await fs.mkdtemp(path.join(os.tmpdir(), 'iia-codex-wire-'));
+  const home = await fs.mkdtemp(path.join(os.tmpdir(), 'msb-codex-wire-'));
   const r = await wireCodexAuth(
     { apiKey: 'sk-test-key-1234567890' },
     { PATH: '/nonexistent/bin' },
@@ -35,7 +35,7 @@ test('wireCodexAuth fails closed when CLI missing (не объявляет ус�
 });
 
 test('codexLoginStatus ok when auth.json present', async () => {
-  const home = await fs.mkdtemp(path.join(os.tmpdir(), 'iia-codex-st-'));
+  const home = await fs.mkdtemp(path.join(os.tmpdir(), 'msb-codex-st-'));
   await fs.mkdir(path.join(home, '.codex'), { recursive: true });
   await fs.writeFile(
     path.join(home, '.codex', 'auth.json'),

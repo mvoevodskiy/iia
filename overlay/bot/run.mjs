@@ -3,7 +3,7 @@
  * Точка входа бота с расширением провайдеров (Cursor / Codex / Qwen).
  * Бандл index.js не меняем: PATH-shim + патч Bot.prototype до загрузки.
  *
- * systemd: ExecStart=/usr/bin/node /home/client/.iia/bot/run.mjs
+ * systemd: ExecStart=/usr/bin/node /home/client/.msb/bot/run.mjs
  * (drop-in: bot/systemd/60-ext-entry.conf)
  */
 import { spawnSync } from 'node:child_process';
@@ -16,11 +16,11 @@ import { enrichPath } from './ext/ensure-cli.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const shimBin = path.join(__dirname, 'ext', 'shim', 'bin');
-const MARK = '[iia/ext]';
+const MARK = '[msb/ext]';
 
 function findRealClaude() {
-  if (process.env.IIA_REAL_CLAUDE && fs.existsSync(process.env.IIA_REAL_CLAUDE)) {
-    return process.env.IIA_REAL_CLAUDE;
+  if (process.env.MSB_REAL_CLAUDE && fs.existsSync(process.env.MSB_REAL_CLAUDE)) {
+    return process.env.MSB_REAL_CLAUDE;
   }
   const hardcoded = [
     '/usr/bin/claude',
@@ -43,7 +43,7 @@ function findRealClaude() {
 
 const real = findRealClaude();
 if (real) {
-  process.env.IIA_REAL_CLAUDE = real;
+  process.env.MSB_REAL_CLAUDE = real;
   console.error(`${MARK} real claude → ${real}`);
 } else {
   console.error(`${MARK} WARNING: real claude not found — Claude provider will fail until installed`);

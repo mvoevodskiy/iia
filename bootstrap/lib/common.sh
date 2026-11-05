@@ -1,5 +1,5 @@
 # shellcheck shell=bash
-# Общие хелперы bootstrap IIA. Подключается из install.sh / verify.sh.
+# Общие хелперы bootstrap MSB. Подключается из install.sh / verify.sh.
 
 set -euo pipefail
 
@@ -8,14 +8,14 @@ REPO_ROOT="$(cd "$BOOTSTRAP_DIR/.." && pwd)"
 
 CLIENT_USER="${CLIENT_USER:-client}"
 CLIENT_HOME="${CLIENT_HOME:-/home/$CLIENT_USER}"
-IIA_HOME="${IIA_HOME:-$CLIENT_HOME/.iia}"
+MSB_HOME="${MSB_HOME:-$CLIENT_HOME/.msb}"
 WORKSPACE="${WORKSPACE:-$CLIENT_HOME/workspace}"
 PROJECTS="${PROJECTS:-$CLIENT_HOME/projects}"
-ADMIN_USER="${ADMIN_USER:-iia-admin}"
+ADMIN_USER="${ADMIN_USER:-msb-admin}"
 
-log()  { printf '[iia-bootstrap] %s\n' "$*"; }
-warn() { printf '[iia-bootstrap] WARN: %s\n' "$*" >&2; }
-die()  { printf '[iia-bootstrap] ERROR: %s\n' "$*" >&2; exit 1; }
+log()  { printf '[msb-bootstrap] %s\n' "$*"; }
+warn() { printf '[msb-bootstrap] WARN: %s\n' "$*" >&2; }
+die()  { printf '[msb-bootstrap] ERROR: %s\n' "$*" >&2; exit 1; }
 
 need_root() {
   [[ "$(id -u)" -eq 0 ]] || die "нужен root (sudo -n)"

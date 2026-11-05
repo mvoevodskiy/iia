@@ -8,14 +8,14 @@ import { isCoreCompatible } from './compat.mjs';
 
 function cfg(env = process.env) {
   return {
-    url: (env.IIA_UPDATES_URL || '').replace(/\/$/, ''),
-    token: env.IIA_UPDATES_TOKEN || '',
-    auto: env.IIA_UPDATES_AUTO === '1',
+    url: (env.MSB_UPDATES_URL || '').replace(/\/$/, ''),
+    token: env.MSB_UPDATES_TOKEN || '',
+    auto: env.MSB_UPDATES_AUTO === '1',
   };
 }
 
 async function api(c, pathname) {
-  if (!c.url || !c.token) throw new Error('IIA_UPDATES_URL/TOKEN not set');
+  if (!c.url || !c.token) throw new Error('MSB_UPDATES_URL/TOKEN not set');
   const res = await fetch(`${c.url}${pathname}`, {
     headers: { authorization: `Bearer ${c.token}` },
   });
@@ -57,7 +57,7 @@ export async function applyExt(env = process.env, home = os.homedir()) {
   if (!isCoreCompatible(core, release.compatible_core) && core && !String(core).startsWith('sha256:')) {
     throw new Error('ext not compatible with core');
   }
-  const live = path.join(home, '.iia');
+  const live = path.join(home, '.msb');
   for (const f of release.files) {
     if (f.path.includes('..')) throw new Error('bad path');
     const buf = await downloadBlob(c, f.sha256);

@@ -1,0 +1,82 @@
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import { ensureDir, statePath } from './paths.mjs';
+
+/**
+ * Совместимый state.json с закрытым ядром и overlay/ext.
+ * Канон полей (CONTRACT-state-menus): authMode, hasSubscriptionAuth, engine,
+ * ccSessionId, ccModel, ccEffort, permissionMode, extAuthBypass.
+ * Алиасы model/effort/permMode читаются для старых записей.
+ */
+export async function loadState(env = process.env) {
+  const file = statePath(env);
+  try {
+    const raw = await fs.readFile(file, 'utf8');
+    const state = JSON.parse(raw);
+    return { file, state: normalizeState(state && typeof state === 'object' ? state : {}) };
+  } catch (err) {
+    if (err?.code === 'ENOENT') return { file, state: {} };
+    throw err;
+  }
+}
+
+function normalizeState(state) {
+  if (state.model && !state.ccModel) state.ccModel = state.model;
+  if (state.effort && !state.ccEffort) state.ccEffort = state.effort;
+  if (state.permMode && !state.permissionMode) state.permissionMode = state.permMode;
+  return state;
+}
+
+export async function saveState(state, env = process.env) {
+  const file = statePath(env);
+  ensureDir(path.dirname(file));
+  const tmp = `${file}.tmp.${process.pid}`;
+  await fs.writeFile(tmp, `${JSON.stringify(state, null, 2)}\n`, { mode: 0o600 });
+  await fs.rename(tmp, file);
+  return file;
+}
+
+export async function updateState(mutator, env = process.env) {
+  const { state } = await loadState(env);
+  const next = (await mutator({ ...state })) || state;
+  await saveState(next, env);
+  return next;
+}
+
+export function hasClaudeAuth(env = process.env, state = {}) {
+  if (state.extAuthBypass) return true;
+  if (state.authMode === 'subscription' && state.hasSubscriptionAuth) return true;
+  return !!(
+    env.CLAUDE_CODE_OAUTH_TOKEN?.trim() ||
+    env.MSB_ANTHROPIC_API_KEY?.trim() ||
+    env.ANTHROPIC_API_KEY?.trim()
+  );
+}
+
+export function resolveModel(state = {}) {
+  const raw = state.ccModel || state.model || 'opus';
+  if (raw === 'opus' || raw === 'opusplan') return 'claude-opus-4-6';
+  if (raw === 'sonnet') return 'claude-sonnet-4-6';
+  if (raw === 'haiku') return 'claude-haiku-4-5-20251001';
+  if (raw === 'fable') return 'claude-fable-5';
+  return raw;
+}
+
+export function resolveEffort(state = {}) {
+  const e = state.ccEffort || state.effort;
+  if (!e || e === 'off') return undefined;
+  return e;
+}
+
+/** UI permissionMode → Claude CLI --permission-mode (CONTRACT-agent-cc). */
+export function resolvePermMode(state = {}) {
+  const ui = state.permissionMode || state.permMode || 'auto';
+  if (ui === 'smart') return 'auto';
+  if (ui === 'bypassPermissions' || ui === 'bypass') return 'bypassPermissions';
+  if (ui === 'dontAsk') return 'dontAsk';
+  // plan / control / auto / default → acceptEdits в штатном бандле
+  if (ui === 'plan' || ui === 'control' || ui === 'auto' || ui === 'default' || ui === 'acceptEdits') {
+    return ui === 'plan' ? 'plan' : 'acceptEdits';
+  }
+  return 'acceptEdits';
+}

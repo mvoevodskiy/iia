@@ -414,7 +414,7 @@ export async function buildLocalSshMenu(env = process.env) {
       : 'Сейчас не задан — используется только конструктор (внешний IP).',
     '',
     'Укажи IPv4/hostname этой машины в LAN (например <code>192.168.1.10</code> или <code>127.0.0.1</code>).',
-    'Переменная: <code>IIA_LOCAL_SSH_HOST</code> (её же можно задать в «🔑 Переменные окружения»).',
+    'Переменная: <code>MSB_LOCAL_SSH_HOST</code> (её же можно задать в «🔑 Переменные окружения»).',
   ];
   const rows = [[btn(host ? '✏️ Изменить' : '➕ Указать IP', 'ext:ssh:local:edit')]];
   if (host) rows.push([btn('🗑 Сбросить', 'ext:ssh:local:clear')]);

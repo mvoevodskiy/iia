@@ -106,14 +106,14 @@ function resolveResumeId(parsed) {
       return { resumeId: decoded.nativeId, dropped: null };
     }
     console.error(
-      `[iia/ext/codex] drop bad resume id (${decoded.nativeId || 'empty'}${
+      `[msb/ext/codex] drop bad resume id (${decoded.nativeId || 'empty'}${
         isCodexSessionSentinel(decoded.nativeId) ? ', sentinel' : ''
       }) → new thread`,
     );
     return { resumeId: null, dropped: decoded.nativeId || 'invalid' };
   }
   if (parsed?.resume && !decoded) {
-    console.error(`[iia/ext/codex] ignore non-ext resume → new thread`);
+    console.error(`[msb/ext/codex] ignore non-ext resume → new thread`);
     return { resumeId: null, dropped: 'non-ext' };
   }
   return { resumeId: null, dropped: null };
@@ -192,7 +192,7 @@ function finalizeParsed({ res, parsedOut, model, resumeRequested }) {
     }
   } else if (resumeRequested && threadId && threadId !== resumeRequested) {
     console.error(
-      `[iia/ext/codex] resume thread changed ${resumeRequested} → ${threadId} (accept if turn ok)`,
+      `[msb/ext/codex] resume thread changed ${resumeRequested} → ${threadId} (accept if turn ok)`,
     );
   }
 
@@ -255,11 +255,11 @@ export async function runCodexTurn({ prompt, parsed, cwd, env, home = os.homedir
     const tr = await ensureCodexStableTransport(home);
     if (tr.changed) {
       console.error(
-        `[iia/ext/codex] transport → ${tr.providerId}${tr.baseUrl ? ` (${tr.baseUrl})` : ''}`,
+        `[msb/ext/codex] transport → ${tr.providerId}${tr.baseUrl ? ` (${tr.baseUrl})` : ''}`,
       );
     }
   } catch (err) {
-    console.error('[iia/ext/codex] ensure transport failed:', err?.message || err);
+    console.error('[msb/ext/codex] ensure transport failed:', err?.message || err);
   }
 
   const nativeConfig = await readCodexNativeConfig(home);
@@ -292,7 +292,7 @@ export async function runCodexTurn({ prompt, parsed, cwd, env, home = os.homedir
 
   // Один автоматический повтор после обрыва WS: новый тред, уже на HTTP provider.
   if (!result.ok && result.streamCut) {
-    console.error('[iia/ext/codex] stream cut → retry once without resume');
+    console.error('[msb/ext/codex] stream cut → retry once without resume');
     try {
       await ensureCodexStableTransport(home);
     } catch {

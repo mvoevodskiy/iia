@@ -1,4 +1,4 @@
-# IIA ext — Cursor / Codex / Qwen в том же боте
+# MSB ext — Cursor / Codex / Qwen в том же боте
 
 Расширение поверх закрытого бандла `bot/index.js` **без** развёртывания OpenClaw.
 
@@ -9,12 +9,12 @@
 | `bot/index.js` | штатный бандл создателя | заменяется обновлением |
 | `bot/run.mjs` | наша точка входа | да (не в манифесте) |
 | `bot/ext/**` | провайдеры, меню, shim | да |
-| `~/.iia/ext-tools/` | npm-пакеты Codex/Qwen | да |
+| `~/.msb/ext-tools/` | npm-пакеты Codex/Qwen | да |
 | drop-in `60-ext-entry.conf` | `ExecStart=…/run.mjs` | да (в /etc) |
 
 **Бандл не патчим.**
 
-1. `run.mjs` ставит в `PATH` shim `ext/shim/bin/claude` + `~/.iia/ext-tools/bin` + `~/.local/bin`.
+1. `run.mjs` ставит в `PATH` shim `ext/shim/bin/claude` + `~/.msb/ext-tools/bin` + `~/.local/bin`.
 2. До `import('./index.js')` патчит **тот же** ESM-класс `Bot` из grammy — перехват «🔌 Подключение».
 3. Если активен не Claude, shim отвечает бандлу Claude stream-json, внутри зовёт `agent` / `codex` / `qwen` с их инструментами (`--force` / `danger-full-access` / `--yolo`).
 
@@ -32,7 +32,7 @@
 3. Неуспешный login Codex **не** переключает канал.
 4. Выбор OpenRouter/OpenClaw сбрасывает активный CLI-канал обвязки, чтобы shim не перехватывал ход.
 
-Активный: `~/.iia/bots/<id>/ext-providers.json`.
+Активный: `~/.msb/bots/<id>/ext-providers.json`.
 
 «Назад» из «🔌 Подключение» ведёт в `menu:settings` (настройки), не в «Агент → Модель».
 
@@ -45,8 +45,8 @@
 | Провайдер | Как ставится |
 |-----------|----------------|
 | Cursor | `curl https://cursor.com/install \| bash` → обычно `~/.local/bin/agent` |
-| Codex | `npm i -g --prefix ~/.iia/ext-tools @openai/codex@0.166.0` (версия закреплена) |
-| Qwen | `npm i -g --prefix ~/.iia/ext-tools @qwen-code/qwen-code` |
+| Codex | `npm i -g --prefix ~/.msb/ext-tools @openai/codex@0.166.0` (версия закреплена) |
+| Qwen | `npm i -g --prefix ~/.msb/ext-tools @qwen-code/qwen-code` |
 
 Срабатывает при входе / выборе провайдера, если бинаря нет. Нужны сеть и `npm`/`curl` у пользователя `client`.
 
@@ -63,7 +63,7 @@
 
 - Модель и `model_reasoning_effort` берутся из `~/.codex/config.toml`; Claude-алиасы бандла (`claude-opus-…`) в OpenAI **не** передаются.
 - Права: `--sandbox danger-full-access`, `-c approval_policy="never"`.
-- Транспорт: HTTP-only provider `iia_http` (`supports_websockets = false`) — обход обрывов Responses WebSocket (`Reconnecting… 5/5`). При обрыве — один автоповтор новым тредом.
+- Транспорт: HTTP-only provider `msb_http` (`supports_websockets = false`) — обход обрывов Responses WebSocket (`Reconnecting… 5/5`). При обрыве — один автоповтор новым тредом.
 - Успех хода: `turn.completed` + непустой текст + валидный native `thread_id`. Служебный `norestart` не блокирует следующий ход.
 - Init/result отдают один подтверждённый session id; сбой `setSession` не глотает уже полученный ответ.
 - В поток бота уходят фактическая модель и native usage; сырой stderr CLI в журнал процесса не дублируется.
@@ -75,26 +75,26 @@
 ## Установка на сервер
 
 ```bash
-chmod +x ~/.iia/bot/ext/shim/bin/claude
-sudo mkdir -p /etc/systemd/system/iia-bot@.service.d
-sudo cp ~/.iia/bot/systemd/60-ext-entry.conf /etc/systemd/system/iia-bot@.service.d/
+chmod +x ~/.msb/bot/ext/shim/bin/claude
+sudo mkdir -p /etc/systemd/system/msb-bot@.service.d
+sudo cp ~/.msb/bot/systemd/60-ext-entry.conf /etc/systemd/system/msb-bot@.service.d/
 sudo systemctl daemon-reload
 sudo bot-ctl.sh restart all   # код общий — подхватывают все инстансы
 ```
 
-Drop-in шаблонный (`iia-bot@.service.d`): новый бот из «Мои боты» сразу стартует через `run.mjs`.
+Drop-in шаблонный (`msb-bot@.service.d`): новый бот из «Мои боты» сразу стартует через `run.mjs`.
 
 Проверка: в боте «🔌 Подключение» → Cursor/Qwen (ключ) или Codex («Войти») → дождаться успеха → написать сообщение агенту.
 
 ## Обновления
 
-Канал обвязки публикуется сервисом `overlay/iia-updates` (отдельно от ядра). На боксе после установки:
+Канал обвязки публикуется сервисом `overlay/msb-updates` (отдельно от ядра). На боксе после установки:
 
 ```
-IIA_UPDATES_URL=...
-IIA_UPDATES_TOKEN=...   # индивидуальный install_box
-node ~/.iia/bot/ext/update/cli.mjs check
-node ~/.iia/bot/ext/update/cli.mjs apply
+MSB_UPDATES_URL=...
+MSB_UPDATES_TOKEN=...   # индивидуальный install_box
+node ~/.msb/bot/ext/update/cli.mjs check
+node ~/.msb/bot/ext/update/cli.mjs apply
 ```
 
 Установщик (TG + веб) ставит обвязку по SSH: владелец в настройках своего бота добавляет ключ и IP хаба — скрипты на сервере не нужны.
@@ -103,7 +103,7 @@ node ~/.iia/bot/ext/update/cli.mjs apply
 
 Конструктор для «Мои боты» и «SSH доступ» ходит по SSH на **внешний** `vps_ip` клиента. Если бокс во внутренней сети и порт 22 снаружи не открыт — эти экраны падают (`VPS unreachable`).
 
-Обход: `/settings` → «Системные» → «SSH доступ» → **🖧 Локальный SSH IP** (переменная `IIA_LOCAL_SSH_HOST`, например `192.168.1.10` или `127.0.0.1`). Тогда запросы `/api/ssh/*` и «Мои боты» (список / добавить / удалить) выполняются на этой машине через `sudo bot-ctl.sh`, без SSH с хаба и без внешнего IP. Нужны вход через `run.mjs` (drop-in `systemd/60-ext-entry.conf`) и актуальный `/usr/local/bin/bot-ctl.sh` с действиями `add` / `remove`.
+Обход: `/settings` → «Системные» → «SSH доступ» → **🖧 Локальный SSH IP** (переменная `MSB_LOCAL_SSH_HOST`, например `192.168.1.10` или `127.0.0.1`). Тогда запросы `/api/ssh/*` и «Мои боты» (список / добавить / удалить) выполняются на этой машине через `sudo bot-ctl.sh`, без SSH с хаба и без внешнего IP. Нужны вход через `run.mjs` (drop-in `systemd/60-ext-entry.conf`) и актуальный `/usr/local/bin/bot-ctl.sh` с действиями `add` / `remove`.
 
 ## Ограничения
 

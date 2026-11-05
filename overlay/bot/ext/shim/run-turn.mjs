@@ -18,7 +18,7 @@ import { isValidCodexThreadId } from '../codex-native.mjs';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 function resolveRealClaude(env = process.env) {
-  if (env.IIA_REAL_CLAUDE && fs.existsSync(env.IIA_REAL_CLAUDE)) return env.IIA_REAL_CLAUDE;
+  if (env.MSB_REAL_CLAUDE && fs.existsSync(env.MSB_REAL_CLAUDE)) return env.MSB_REAL_CLAUDE;
   const candidates = [
     '/usr/bin/claude',
     '/usr/local/bin/claude',
@@ -93,7 +93,7 @@ async function runAlternate(providerId, argv) {
   const parsed = parseClaudeArgv(argv);
   const userText = await readStdin();
   const prompt = await buildPrompt(parsed, userText, { providerId });
-  console.error(`[iia/ext/shim] turn via ${providerId} (prompt=${prompt.length}ch)`);
+  console.error(`[msb/ext/shim] turn via ${providerId} (prompt=${prompt.length}ch)`);
 
   const ctx = {
     prompt,
@@ -162,7 +162,7 @@ async function runAlternate(providerId, argv) {
     try {
       await setSession(providerId, nativeId);
     } catch (err) {
-      console.error('[iia/ext/shim] setSession failed (ответ уже отдан):', err?.message || err);
+      console.error('[msb/ext/shim] setSession failed (ответ уже отдан):', err?.message || err);
     }
   }
 
@@ -175,13 +175,13 @@ async function main() {
   try {
     active = (await loadStore()).active || 'claude';
   } catch (err) {
-    console.error('[iia/ext/shim] store load failed:', err.message);
+    console.error('[msb/ext/shim] store load failed:', err.message);
   }
 
   if (active === 'claude' || process.env.JARVIS_CC_ONLY === '1') {
     const real = resolveRealClaude();
     if (!real) {
-      console.error('[iia/ext/shim] настоящий claude не найден (IIA_REAL_CLAUDE / PATH)');
+      console.error('[msb/ext/shim] настоящий claude не найден (MSB_REAL_CLAUDE / PATH)');
       process.exit(127);
     }
     passthroughClaude(real, argv);
@@ -192,6 +192,6 @@ async function main() {
 }
 
 main().catch((err) => {
-  console.error('[iia/ext/shim] fatal:', err);
+  console.error('[msb/ext/shim] fatal:', err);
   process.exit(1);
 });

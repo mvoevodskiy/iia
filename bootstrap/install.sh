@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# bootstrap/install.sh — развернуть чистое ядро IIA (оркестратор) на новом Linux-сервере.
+# bootstrap/install.sh — развернуть чистое ядро MSB (оркестратор) на новом Linux-сервере.
 #
 # По умолчанию ставит ТОЛЬКО ядро (ExecStart → bot/index.js).
 # Обвязка CLI (overlay/: Cursor/Codex/Qwen) — флаг --with-ext или отдельный overlay/install.sh.
 # Продукты владельца и их секреты не ставятся.
 #
 # Использование (на целевом сервере, от root / sudo -n):
-#   ./bootstrap/install.sh --env-file /root/iia.env --bot-env-file /root/bot-default.env
+#   ./bootstrap/install.sh --env-file /root/msb.env --bot-env-file /root/bot-default.env
 #   ./bootstrap/install.sh --with-ext
 #   ./bootstrap/install.sh --dry-run
 #
@@ -31,9 +31,9 @@ usage() {
   cat <<'EOF'
 Usage: install.sh [options]
 
-  --source DIR          корень снимка IIA (по умолчанию: родитель bootstrap/)
-  --env-file FILE       заполненный общий .env (см. env/iia.env.example)
-  --bot-env-file FILE   шаблон per-bot .env; IIA_BOT_ID/пути подставятся per id
+  --source DIR          корень снимка MSB (по умолчанию: родитель bootstrap/)
+  --env-file FILE       заполненный общий .env (см. env/msb.env.example)
+  --bot-env-file FILE   шаблон per-bot .env; MSB_BOT_ID/пути подставятся per id
   --bots LIST           через запятую, по умолчанию: default
   --with-ext            после ядра вызвать overlay/install.sh (CLI-провайдеры)
   --skip-start          установить, но не enable/start юниты бота
@@ -67,9 +67,9 @@ need_root
 [[ "$(uname -s)" == "Linux" ]] || die "только Linux"
 command -v systemctl >/dev/null || die "нужен systemd"
 
-[[ -d "$SOURCE/.iia/bot" ]] || die "нет $SOURCE/.iia/bot — укажи --source"
+[[ -d "$SOURCE/.msb/bot" ]] || die "нет $SOURCE/.msb/bot — укажи --source"
 [[ -f "$SOURCE/usr-local-sbin/jarvis-engine" ]] || die "нет jarvis-engine в снимке"
-[[ -f "$SOURCE/systemd/iia-bot@.service" ]] || die "нет systemd-юнитов в снимке"
+[[ -f "$SOURCE/systemd/msb-bot@.service" ]] || die "нет systemd-юнитов в снимке"
 
 IFS=',' read -r -a BOT_LIST <<<"$BOTS"
 for b in "${BOT_LIST[@]}"; do
@@ -127,21 +127,21 @@ setup_users() {
   else
     log "dry-run: usermod -aG $CLIENT_USER $ADMIN_USER"
   fi
-  run mkdir -p "$CLIENT_HOME" "$IIA_HOME" "$WORKSPACE" "$PROJECTS"
+  run mkdir -p "$CLIENT_HOME" "$MSB_HOME" "$WORKSPACE" "$PROJECTS"
   run chown -R "$CLIENT_USER:$CLIENT_USER" "$CLIENT_HOME"
 }
 
 # ─── 3. Копирование ядра ─────────────────────────────────────────────────────
 copy_platform() {
-  log "копирование .iia (платформа)"
-  run mkdir -p "$IIA_HOME"
+  log "копирование .msb (платформа)"
+  run mkdir -p "$MSB_HOME"
 
   if [[ "$DRY_RUN" == "1" ]]; then
-    log "dry-run: rsync .iia → $IIA_HOME"
+    log "dry-run: rsync .msb → $MSB_HOME"
     return
   fi
 
-  # Ядро: никогда не копируем обвязку из .iia/bot (даже если лежит в снимке).
+  # Ядро: никогда не копируем обвязку из .msb/bot (даже если лежит в снимке).
   rsync -a \
     --exclude 'node_modules/' \
     --exclude '/.env' \
@@ -153,12 +153,12 @@ copy_platform() {
     --exclude 'bot/ext/' \
     --exclude 'bot/run.mjs' \
     --exclude 'bot/systemd/' \
-    "$SOURCE/.iia/" "$IIA_HOME/"
+    "$SOURCE/.msb/" "$MSB_HOME/"
 
   # чистые маркеры
-  rm -f "$IIA_HOME/.puller-state.json" "$IIA_HOME/state.json" "$IIA_HOME/.base-pulse.json"
-  : >"$IIA_HOME/state.json"
-  echo "bootstrap $(date -u +%Y-%m-%dT%H:%M:%SZ)" >"$IIA_HOME/.provisioned"
+  rm -f "$MSB_HOME/.puller-state.json" "$MSB_HOME/state.json" "$MSB_HOME/.base-pulse.json"
+  : >"$MSB_HOME/state.json"
+  echo "bootstrap $(date -u +%Y-%m-%dT%H:%M:%SZ)" >"$MSB_HOME/.provisioned"
 
   # Workspace: только чистый seed (не археология SOURCE/workspace/).
   # Повторный прогон без --reset-workspace не затирает уже живой workspace.
@@ -176,7 +176,7 @@ copy_platform() {
         --exclude 'README.md' \
         "$seed/" "$WORKSPACE/"
       mkdir -p "$WORKSPACE/memory" "$WORKSPACE/ops" "$WORKSPACE/.claude"
-      rm -f "$WORKSPACE/.iia-bootstrapped"
+      rm -f "$WORKSPACE/.msb-bootstrapped"
     fi
   fi
   # пустые projects
@@ -185,24 +185,24 @@ copy_platform() {
     cat >"$PROJECTS/README.md" <<'EOF'
 # projects
 
-Каталог продуктовых проектов оркестратора IIA.
+Каталог продуктовых проектов оркестратора MSB.
 На чистой установке пуст — бот создаёт проекты здесь сам.
 EOF
   fi
 
-  chown -R "$CLIENT_USER:$CLIENT_USER" "$IIA_HOME" "$WORKSPACE" "$PROJECTS"
+  chown -R "$CLIENT_USER:$CLIENT_USER" "$MSB_HOME" "$WORKSPACE" "$PROJECTS"
 }
 
 # ─── 4. npm / claude / playwright ────────────────────────────────────────────
 install_node_deps() {
-  log "npm ci в $IIA_HOME/bot"
+  log "npm ci в $MSB_HOME/bot"
   if [[ "$DRY_RUN" == "1" ]]; then
     log "dry-run: npm ci + claude-code + playwright"
     return
   fi
-  [[ -f "$IIA_HOME/bot/package-lock.json" ]] || die "нет package-lock.json у бота"
-  su -s /bin/bash -c "cd '$IIA_HOME/bot' && npm ci --omit=dev" "$CLIENT_USER" \
-    || su -s /bin/bash -c "cd '$IIA_HOME/bot' && npm ci" "$CLIENT_USER"
+  [[ -f "$MSB_HOME/bot/package-lock.json" ]] || die "нет package-lock.json у бота"
+  su -s /bin/bash -c "cd '$MSB_HOME/bot' && npm ci --omit=dev" "$CLIENT_USER" \
+    || su -s /bin/bash -c "cd '$MSB_HOME/bot' && npm ci" "$CLIENT_USER"
 
   if ! command -v claude >/dev/null 2>&1 && [[ ! -f /usr/lib/node_modules/@anthropic-ai/claude-code/cli.js ]]; then
     log "установка @anthropic-ai/claude-code (global)"
@@ -212,7 +212,7 @@ install_node_deps() {
   fi
 
   log "playwright chromium (для агента)"
-  su -s /bin/bash -c "cd '$IIA_HOME/bot' && npx playwright install --with-deps chromium" "$CLIENT_USER" \
+  su -s /bin/bash -c "cd '$MSB_HOME/bot' && npx playwright install --with-deps chromium" "$CLIENT_USER" \
     || warn "playwright install не удался — бот без браузера; при необходимости повтори вручную"
 }
 
@@ -221,7 +221,7 @@ install_bins() {
   log "скрипты /usr/local/bin и jarvis-engine"
   run install -d -m 0755 /usr/local/bin /usr/local/sbin /usr/local/lib/jarvis-engine
   run install -m 0755 "$SOURCE/usr-local-bin/bot-ctl.sh" /usr/local/bin/bot-ctl.sh
-  run install -m 0755 "$SOURCE/usr-local-bin/iia-bot-watchdog.sh" /usr/local/bin/iia-bot-watchdog.sh
+  run install -m 0755 "$SOURCE/usr-local-bin/msb-bot-watchdog.sh" /usr/local/bin/msb-bot-watchdog.sh
   run install -m 0755 "$SOURCE/usr-local-sbin/jarvis-engine" /usr/local/sbin/jarvis-engine
   run cp -a "$SOURCE/usr-local-sbin/jarvis-engine" /usr/local/lib/jarvis-engine/jarvis-engine.good
   run chmod 0755 /usr/local/lib/jarvis-engine/jarvis-engine.good
@@ -229,25 +229,25 @@ install_bins() {
 
 # ─── 6. sudoers / tick conf ───────────────────────────────────────────────────
 install_sudoers() {
-  log "sudoers + /etc/iia-tick"
-  run install -d -m 0755 /etc/sudoers.d /etc/iia-tick
-  for f in iia-admin agent-client iia-tick jarvis-client; do
+  log "sudoers + /etc/msb-tick"
+  run install -d -m 0755 /etc/sudoers.d /etc/msb-tick
+  for f in msb-admin agent-client msb-tick jarvis-client; do
     run install -m 0440 "$SOURCE/etc/sudoers.d/$f" "/etc/sudoers.d/$f"
   done
   if [[ "$DRY_RUN" != "1" ]]; then
-    visudo -cf /etc/sudoers.d/iia-admin \
+    visudo -cf /etc/sudoers.d/msb-admin \
       && visudo -cf /etc/sudoers.d/agent-client \
-      && visudo -cf /etc/sudoers.d/iia-tick \
+      && visudo -cf /etc/sudoers.d/msb-tick \
       && visudo -cf /etc/sudoers.d/jarvis-client \
       || die "visudo отклонил sudoers"
   fi
-  run install -m 0644 "$SOURCE/etc/iia-tick/puller.conf" /etc/iia-tick/puller.conf
+  run install -m 0644 "$SOURCE/etc/msb-tick/puller.conf" /etc/msb-tick/puller.conf
 }
 
 # ─── 7. Боты: каталоги, env, fstab binds ─────────────────────────────────────
 setup_bots() {
   log "инстансы ботов: ${BOT_LIST[*]}"
-  local fstab_snip=/etc/fstab.d/iia-binds.conf
+  local fstab_snip=/etc/fstab.d/msb-binds.conf
   if [[ "$DRY_RUN" != "1" ]]; then
     mkdir -p /etc/fstab.d
     : >"$fstab_snip"
@@ -255,7 +255,7 @@ setup_bots() {
 
   local id bot_dir
   for id in "${BOT_LIST[@]}"; do
-    bot_dir="$IIA_HOME/bots/$id"
+    bot_dir="$MSB_HOME/bots/$id"
     run mkdir -p \
       "$bot_dir/cwd" \
       "$bot_dir/sessions" \
@@ -282,7 +282,7 @@ setup_bots() {
     write_bot_env "$id" "$bot_dir"
   done
 
-  [[ "$DRY_RUN" == "1" ]] || chown -R "$CLIENT_USER:$CLIENT_USER" "$IIA_HOME/bots"
+  [[ "$DRY_RUN" == "1" ]] || chown -R "$CLIENT_USER:$CLIENT_USER" "$MSB_HOME/bots"
 }
 
 write_bot_env() {
@@ -294,16 +294,16 @@ write_bot_env() {
     fi
     # подставить пути/id, не трогая BOT_TOKEN из файла
     sed \
-      -e "s|^IIA_BOT_ID=.*|IIA_BOT_ID=$id|" \
-      -e "s|^IIA_SESSION_DIR=.*|IIA_SESSION_DIR=$bot_dir/sessions|" \
-      -e "s|^IIA_TRANSCRIPT_DIR=.*|IIA_TRANSCRIPT_DIR=$bot_dir/transcripts|" \
-      -e "s|^IIA_HOOKS_DIR=.*|IIA_HOOKS_DIR=$bot_dir/agent-hooks|" \
-      -e "s|^IIA_TRACES_DIR=.*|IIA_TRACES_DIR=$bot_dir/traces|" \
+      -e "s|^MSB_BOT_ID=.*|MSB_BOT_ID=$id|" \
+      -e "s|^MSB_SESSION_DIR=.*|MSB_SESSION_DIR=$bot_dir/sessions|" \
+      -e "s|^MSB_TRANSCRIPT_DIR=.*|MSB_TRANSCRIPT_DIR=$bot_dir/transcripts|" \
+      -e "s|^MSB_HOOKS_DIR=.*|MSB_HOOKS_DIR=$bot_dir/agent-hooks|" \
+      -e "s|^MSB_TRACES_DIR=.*|MSB_TRACES_DIR=$bot_dir/traces|" \
       "$BOT_ENV_FILE" >"$dest"
   elif [[ "$DRY_RUN" != "1" ]]; then
     sed \
-      -e "s/^IIA_BOT_ID=.*/IIA_BOT_ID=$id/" \
-      -e "s|/home/client/.iia/bots/default/|$bot_dir/|g" \
+      -e "s/^MSB_BOT_ID=.*/MSB_BOT_ID=$id/" \
+      -e "s|/home/client/.msb/bots/default/|$bot_dir/|g" \
       "$SCRIPT_DIR/env/bot.env.example" >"$dest"
     warn "записан шаблон $dest — заполни BOT_TOKEN до старта"
   fi
@@ -311,7 +311,7 @@ write_bot_env() {
 }
 
 write_shared_env() {
-  local dest="$IIA_HOME/.env"
+  local dest="$MSB_HOME/.env"
   if [[ -n "$ENV_FILE" ]]; then
     log "общий .env из $ENV_FILE"
     if [[ "$DRY_RUN" != "1" ]]; then
@@ -320,7 +320,7 @@ write_shared_env() {
   elif [[ "$DRY_RUN" != "1" ]]; then
     if [[ ! -f "$dest" ]]; then
       install -m 0600 -o "$CLIENT_USER" -g "$CLIENT_USER" \
-        "$SCRIPT_DIR/env/iia.env.example" "$dest"
+        "$SCRIPT_DIR/env/msb.env.example" "$dest"
       warn "записан шаблон $dest — заполни секреты до старта"
     fi
   else
@@ -330,15 +330,15 @@ write_shared_env() {
 
 # ─── 8. systemd ───────────────────────────────────────────────────────────────
 CORE_UNITS=(
-  iia-bot@.service
-  iia-sync.service
-  iia-sync.timer
-  iia-tick@.service
-  iia-tick-puller.timer
-  iia-pull-now.path
-  iia-pull-now.service
-  iia-base-pulse.timer
-  iia-base-pulse.service
+  msb-bot@.service
+  msb-sync.service
+  msb-sync.timer
+  msb-tick@.service
+  msb-tick-puller.timer
+  msb-pull-now.path
+  msb-pull-now.service
+  msb-base-pulse.timer
+  msb-base-pulse.service
   jarvis-engine.path
   jarvis-engine.service
   jarvis-engine-tick.timer
@@ -360,29 +360,29 @@ install_systemd() {
 
   # drop-ins
   if [[ "$DRY_RUN" != "1" ]]; then
-    mkdir -p /etc/systemd/system/iia-bot@.service.d
-    for f in "$SOURCE/systemd/iia-bot@.service.d"/*.conf \
-             "$SOURCE/systemd/drop-ins/iia-bot@.service.d"/*.conf; do
+    mkdir -p /etc/systemd/system/msb-bot@.service.d
+    for f in "$SOURCE/systemd/msb-bot@.service.d"/*.conf \
+             "$SOURCE/systemd/drop-ins/msb-bot@.service.d"/*.conf; do
       [[ -f "$f" ]] || continue
-      install -m 0644 "$f" /etc/systemd/system/iia-bot@.service.d/
+      install -m 0644 "$f" /etc/systemd/system/msb-bot@.service.d/
     done
-    mkdir -p /etc/systemd/system/iia-sync.service.d
-    for f in "$SOURCE/systemd/iia-sync.service.d"/*.conf \
-             "$SOURCE/systemd/drop-ins/iia-sync.service.d"/*.conf; do
+    mkdir -p /etc/systemd/system/msb-sync.service.d
+    for f in "$SOURCE/systemd/msb-sync.service.d"/*.conf \
+             "$SOURCE/systemd/drop-ins/msb-sync.service.d"/*.conf; do
       [[ -f "$f" ]] || continue
-      install -m 0644 "$f" /etc/systemd/system/iia-sync.service.d/
+      install -m 0644 "$f" /etc/systemd/system/msb-sync.service.d/
     done
-    mkdir -p /etc/systemd/system/iia-sync.timer.d
-    for f in "$SOURCE/systemd/iia-sync.timer.d"/*.conf \
-             "$SOURCE/systemd/drop-ins/iia-sync.timer.d"/*.conf; do
+    mkdir -p /etc/systemd/system/msb-sync.timer.d
+    for f in "$SOURCE/systemd/msb-sync.timer.d"/*.conf \
+             "$SOURCE/systemd/drop-ins/msb-sync.timer.d"/*.conf; do
       [[ -f "$f" ]] || continue
-      install -m 0644 "$f" /etc/systemd/system/iia-sync.timer.d/
+      install -m 0644 "$f" /etc/systemd/system/msb-sync.timer.d/
     done
-    if [[ -d "$SOURCE/systemd/drop-ins/system-iia-bot.slice.d" ]]; then
-      # Для шаблона iia-bot@.service слайс — system-iia\x2dbot.slice
-      local slice_d='/etc/systemd/system/system-iia\x2dbot.slice.d'
+    if [[ -d "$SOURCE/systemd/drop-ins/system-msb-bot.slice.d" ]]; then
+      # Для шаблона msb-bot@.service слайс — system-msb\x2dbot.slice
+      local slice_d='/etc/systemd/system/system-msb\x2dbot.slice.d'
       mkdir -p "$slice_d"
-      install -m 0644 "$SOURCE/systemd/drop-ins/system-iia-bot.slice.d/"*.conf "$slice_d/"
+      install -m 0644 "$SOURCE/systemd/drop-ins/system-msb-bot.slice.d/"*.conf "$slice_d/"
     fi
     systemctl daemon-reload
   else
@@ -405,10 +405,10 @@ enable_services() {
     return
   fi
 
-  systemctl enable --now iia-sync.timer || warn "iia-sync.timer"
-  systemctl enable --now iia-tick-puller.timer || warn "iia-tick-puller.timer"
-  systemctl enable --now iia-pull-now.path || warn "iia-pull-now.path"
-  systemctl enable --now iia-base-pulse.timer || warn "iia-base-pulse.timer"
+  systemctl enable --now msb-sync.timer || warn "msb-sync.timer"
+  systemctl enable --now msb-tick-puller.timer || warn "msb-tick-puller.timer"
+  systemctl enable --now msb-pull-now.path || warn "msb-pull-now.path"
+  systemctl enable --now msb-base-pulse.timer || warn "msb-base-pulse.timer"
   systemctl enable jarvis-engine.path jarvis-engine-update.path jarvis-engine-tick.timer \
     || warn "jarvis-engine units"
   systemctl start jarvis-engine.path jarvis-engine-update.path || true
@@ -418,11 +418,11 @@ enable_services() {
   if [[ -n "$ENV_FILE" ]]; then
     local id
     for id in "${BOT_LIST[@]}"; do
-      if grep -q '^BOT_TOKEN=.\+' "$IIA_HOME/bots/$id/.env" 2>/dev/null; then
-        log "enable iia-bot@$id"
-        systemctl enable --now "iia-bot@$id" || warn "не стартовал iia-bot@$id"
+      if grep -q '^BOT_TOKEN=.\+' "$MSB_HOME/bots/$id/.env" 2>/dev/null; then
+        log "enable msb-bot@$id"
+        systemctl enable --now "msb-bot@$id" || warn "не стартовал msb-bot@$id"
       else
-        warn "iia-bot@$id: пустой BOT_TOKEN — не стартуем"
+        warn "msb-bot@$id: пустой BOT_TOKEN — не стартуем"
       fi
     done
   fi
@@ -463,8 +463,8 @@ main() {
   if [[ "$DRY_RUN" != "1" ]]; then
     echo
     echo "Проверка:  $SCRIPT_DIR/verify.sh"
-    echo "Логи бота: journalctl -u iia-bot@${BOT_LIST[0]} -f"
-    echo "Секреты:   $IIA_HOME/.env  и  $IIA_HOME/bots/<id>/.env"
+    echo "Логи бота: journalctl -u msb-bot@${BOT_LIST[0]} -f"
+    echo "Секреты:   $MSB_HOME/.env  и  $MSB_HOME/bots/<id>/.env"
     if [[ "$WITH_EXT" != "1" ]]; then
       echo "Обвязка:   sudo $SOURCE/overlay/install.sh   # Cursor/Codex/Qwen (опционально)"
     fi

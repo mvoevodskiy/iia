@@ -33,7 +33,7 @@ export async function runQwenTurn({ prompt, parsed, cwd, env }) {
   try {
     await wireQwenAuth(key);
   } catch (err) {
-    console.error('[iia/ext/qwen] wire settings failed:', err.message);
+    console.error('[msb/ext/qwen] wire settings failed:', err.message);
   }
 
   const preferred = await getSelectedModel('qwen', env);
@@ -56,7 +56,7 @@ export async function runQwenTurn({ prompt, parsed, cwd, env }) {
   if (decoded?.providerId === 'qwen' && decoded.nativeId && !isBadQwenResume(decoded.nativeId)) {
     args.push('--resume', decoded.nativeId);
   } else if (parsed?.resume && decoded?.providerId === 'qwen') {
-    console.error(`[iia/ext/qwen] drop bad resume id (${decoded.nativeId}) → new session`);
+    console.error(`[msb/ext/qwen] drop bad resume id (${decoded.nativeId}) → new session`);
   }
   if (model) args.push('--model', model);
 

@@ -7,8 +7,8 @@ import { applyProviderModel } from '../apply-model.mjs';
 import { getSelectedModel } from '../store.mjs';
 
 test('applyProviderModel writes codex config.toml and store', async () => {
-  const home = await fs.mkdtemp(path.join(os.tmpdir(), 'iia-ext-model-'));
-  const env = { IIA_BOT_ID: 'default' };
+  const home = await fs.mkdtemp(path.join(os.tmpdir(), 'msb-ext-model-'));
+  const env = { MSB_BOT_ID: 'default' };
   await fs.mkdir(path.join(home, '.codex'), { recursive: true });
   await fs.writeFile(path.join(home, '.codex', 'config.toml'), 'approval_policy = "never"\n');
 
