@@ -1,0 +1,98 @@
+import {
+  hasClaudeAuth,
+  loadState,
+  resolveEffort,
+  resolveModel,
+  resolvePermMode,
+  updateState,
+} from '../state.mjs';
+import { runClaudeTurn } from './claude.mjs';
+import { buildSystemPrompt } from './system-prompt.mjs';
+
+/**
+ * Один ход агента для чата или автономии.
+ */
+export async function runAgentTurn({
+  prompt,
+  signal,
+  onStatus,
+  autonomy = false,
+  env = process.env,
+} = {}) {
+  const { state } = await loadState(env);
+  if (!hasClaudeAuth(env, state)) {
+    return {
+      ok: false,
+      error: 'setup',
+      text: 'AI ещё не подключён. Открой /start → «🔌 Подключение» или задай CLAUDE_CODE_OAUTH_TOKEN.',
+    };
+  }
+
+  if (state.engine === 'oc') {
+    return {
+      ok: false,
+      error: 'engine_oc',
+      text: 'Движок OpenClaw в open-core пока не реализован. Переключись на Claude Code в настройках.',
+    };
+  }
+
+  const model = resolveModel(state);
+  const effort = resolveEffort(state);
+  const permissionMode = resolvePermMode(state);
+  const systemPrompt = await buildSystemPrompt();
+
+  let lastTool = '';
+  const result = await runClaudeTurn({
+    prompt,
+    sessionId: state.ccSessionId || undefined,
+    model,
+    effort,
+    permissionMode,
+    systemPrompt,
+    signal,
+    autonomy,
+    onEvent(ev) {
+      if (ev.type === 'assistant') {
+        for (const part of ev.message?.content || []) {
+          if (part.type === 'tool_use' && part.name) {
+            lastTool = part.name;
+            onStatus?.({ kind: 'tool', name: part.name, input: summarizeInput(part.input) });
+          } else if (part.type === 'text' && part.text) {
+            onStatus?.({ kind: 'text', preview: part.text.slice(0, 80) });
+          } else if (part.type === 'thinking') {
+            onStatus?.({ kind: 'thinking' });
+          }
+        }
+      } else if (ev.type === 'system' && ev.subtype === 'init') {
+        onStatus?.({ kind: 'init', model: ev.model, sessionId: ev.session_id });
+      }
+    },
+  });
+
+  if (result.sessionId && result.sessionId !== state.ccSessionId) {
+    await updateState((s) => {
+      s.ccSessionId = result.sessionId;
+      return s;
+    }, env);
+  }
+
+  if (result.aborted) {
+    return { ok: false, error: 'aborted', text: 'Остановлено.', result };
+  }
+
+  const text =
+    result.text ||
+    (result.isError
+      ? `Ход завершился с ошибкой${result.subtype ? ` (${result.subtype})` : ''}.${result.stderr ? `\n\n${result.stderr.slice(0, 500)}` : ''}`
+      : lastTool
+        ? `(ход без текста; последний инструмент: ${lastTool})`
+        : '(пустой ответ)');
+
+  return { ok: !result.isError, text, result };
+}
+
+function summarizeInput(input) {
+  if (!input || typeof input !== 'object') return '';
+  const file = input.file_path || input.path || input.command || input.pattern || '';
+  return String(file).slice(0, 60);
+}

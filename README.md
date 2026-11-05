@@ -2,6 +2,9 @@
 
 Платформа Telegram-агента на Linux (systemd). Репозиторий разделён на **ядро** и **обвязку**.
 
+Ветка **`open-core`**: ядро — открытый код в `.iia/bot/src/` (не минифицированный бандл).
+Подробности: [.iia/bot/OPEN-CORE.md](.iia/bot/OPEN-CORE.md). Откат: `IIA_USE_CLOSED_CORE=1`.
+
 ## Два слоя
 
 | Слой | Путь | Запуск | Обязателен? |
@@ -9,7 +12,7 @@
 | **Ядро** | `.iia/`, `bootstrap/`, `systemd/`, `usr-local-*` | `node .iia/bot/index.js` | да |
 | **Обвязка** | `overlay/` | `node .iia/bot/run.mjs` (после установки) | нет |
 
-Ядро отвечает в Telegram на Claude (штатный бандл). Обвязка добавляет Cursor / Codex / Qwen, LAN SSH и канал обновлений — её можно не ставить.
+Ядро отвечает в Telegram через Claude Code CLI. Обвязка добавляет Cursor / Codex / Qwen, LAN SSH и канал обновлений — её можно не ставить.
 
 ```
 репозиторий

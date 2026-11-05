@@ -2005,6 +2005,18 @@ async function tickOnce() {
 // requiring this file without auto-running a tick.
 if (require.main === module) {
   (async () => {
+    // open-core: не даём vendor-манифесту затереть читаемое ядро.
+    try {
+      const openMarker = path.join(LIVE_DIR, 'bot', 'OPEN-CORE.md');
+      const openSrc = path.join(LIVE_DIR, 'bot', 'src', 'main.mjs');
+      if (fs.existsSync(openMarker) || fs.existsSync(openSrc)) {
+        if (process.env.IIA_ALLOW_VENDOR_PULLER !== '1') {
+          log('INFO', 'open-core detected — vendor puller skipped (set IIA_ALLOW_VENDOR_PULLER=1 to override)');
+          process.exit(0);
+        }
+        log('WARN', 'IIA_ALLOW_VENDOR_PULLER=1 — proceeding despite open-core');
+      }
+    } catch (_) { /* continue */ }
     log('INFO', 'puller single-tick mode (systemd timer-driven)');
     try {
       const res = await tickOnce();
