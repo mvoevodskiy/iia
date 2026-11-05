@@ -1,0 +1,21 @@
+services:
+  iia-updates:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    image: iia-updates:local
+    container_name: iia-updates
+    restart: unless-stopped
+    ports:
+      - "8787:8787"
+    env_file:
+      - ./env
+    environment:
+      PORT: "8787"
+      IIA_UPDATES_DATA: /data
+      BOT_MODE: webhook
+    volumes:
+      - ../data-runtime:/data
+      - ../:/app:ro
+    # для SSH с хаба на бот-серверы нужен исходящий доступ; host network проще на LAN
+    # network_mode: host

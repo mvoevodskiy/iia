@@ -1,0 +1,88 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import {
+  ensureCodexStableTransport,
+  IIA_HTTP_PROVIDER_ID,
+  codexHttpProviderOverrides,
+} from '../codex-transport.mjs';
+import { parseCodexStdout, buildCodexExecArgs, isCodexStreamCutMessage } from '../adapters/codex.mjs';
+
+test('ensureCodexStableTransport writes HTTP-only provider for ChatGPT auth', async () => {
+  const home = await fs.mkdtemp(path.join(os.tmpdir(), 'iia-codex-tr-'));
+  await fs.mkdir(path.join(home, '.codex'), { recursive: true });
+  await fs.writeFile(
+    path.join(home, '.codex', 'auth.json'),
+    JSON.stringify({ auth_mode: 'chatgpt', tokens: { access_token: 't', refresh_token: 'r' } }),
+    { mode: 0o600 },
+  );
+  await fs.writeFile(path.join(home, '.codex', 'config.toml'), 'model = "gpt-6.1-sol"\n');
+
+  const r = await ensureCodexStableTransport(home);
+  assert.equal(r.ok, true);
+  assert.equal(r.providerId, IIA_HTTP_PROVIDER_ID);
+  assert.match(r.baseUrl, /chatgpt\.com/);
+  const toml = await fs.readFile(path.join(home, '.codex', 'config.toml'), 'utf8');
+  assert.match(toml, /model_provider = "iia_http"/);
+  assert.match(toml, /supports_websockets = false/);
+  assert.match(toml, /stream_idle_timeout_ms = 600000/);
+  assert.match(toml, /model = "gpt-6.1-sol"/);
+
+  const r2 = await ensureCodexStableTransport(home);
+  assert.equal(r2.changed, false);
+});
+
+test('ensureCodexStableTransport uses api.openai.com for api_key auth', async () => {
+  const home = await fs.mkdtemp(path.join(os.tmpdir(), 'iia-codex-tr-api-'));
+  await fs.mkdir(path.join(home, '.codex'), { recursive: true });
+  await fs.writeFile(
+    path.join(home, '.codex', 'auth.json'),
+    JSON.stringify({ auth_mode: 'api_key', OPENAI_API_KEY: 'sk-test' }),
+    { mode: 0o600 },
+  );
+  const r = await ensureCodexStableTransport(home);
+  assert.match(r.baseUrl, /api\.openai\.com/);
+});
+
+test('buildCodexExecArgs forces iia_http provider', () => {
+  const args = buildCodexExecArgs({ model: 'gpt-6.1-sol', effort: 'high', forceHttp: true });
+  assert.ok(args.includes(`model_provider="${IIA_HTTP_PROVIDER_ID}"`) || args.some((a) => a.includes('iia_http')));
+  assert.deepEqual(codexHttpProviderOverrides(true).slice(0, 1), ['-c']);
+});
+
+test('parseCodexStdout: reconnect then turn.completed is success, not fail', () => {
+  const msg =
+    'Reconnecting... 5/5 (stream disconnected before completion: websocket closed by server before response.completed)';
+  const stdout = [
+    JSON.stringify({ type: 'thread.started', thread_id: '0199a213-81c0-7800-8aa1-bbab2a035a53' }),
+    JSON.stringify({ type: 'item.completed', item: { type: 'agent_message', text: msg } }),
+    JSON.stringify({
+      type: 'item.completed',
+      item: { type: 'agent_message', text: 'готово после HTTP fallback' },
+    }),
+    JSON.stringify({
+      type: 'turn.completed',
+      usage: { input_tokens: 1, output_tokens: 2 },
+    }),
+  ].join('\n');
+  const p = parseCodexStdout(stdout);
+  assert.equal(p.turnCompleted, true);
+  assert.equal(p.turnFailed, null);
+  assert.equal(p.streamCut, false);
+  assert.equal(p.text, 'готово после HTTP fallback');
+});
+
+test('parseCodexStdout: reconnect without completion is streamCut', () => {
+  const msg =
+    'Reconnecting... 5/5 (stream disconnected before completion: websocket closed by server before response.completed)';
+  assert.equal(isCodexStreamCutMessage(msg), true);
+  const stdout = [
+    JSON.stringify({ type: 'thread.started', thread_id: '0199a213-81c0-7800-8aa1-bbab2a035a53' }),
+    JSON.stringify({ type: 'item.completed', item: { type: 'agent_message', text: msg } }),
+  ].join('\n');
+  const p = parseCodexStdout(stdout);
+  assert.equal(p.streamCut, true);
+  assert.ok(p.turnFailed);
+});
