@@ -51,10 +51,11 @@ systemd / bootstrap не меняются: `ExecStart=…/bot/index.js`.
 Открытое ядро сохраняет поля `authMode`, `hasSubscriptionAuth`, `ccSessionId`,
 `model`, `effort`, `permMode`, `engine`, `extAuthBypass`.
 
-## Что уже есть (0.1)
+## Что уже есть (0.2)
 
-- Telegram polling + ADMIN_ID
-- /start, настройки модели / глубины / permission-mode
+- Telegram UI **с точки зрения меню**: hub, агент, настройки, автономка, мониторинг, MCP, навыки, сессии, проекты, setup — те же кнопки/`callback_data`, что в бандле
+- Slash-команды как в `sBA` (+ help-тексты)
+- ADMIN_ID: чужие апдейты — тишина; Setup Mode как в контракте
 - Приём Claude OAuth / API key
 - Ход агента через `claude -p --output-format stream-json`
 - Сессии (`ccSessionId`), статус tool_use в чате
@@ -62,19 +63,21 @@ systemd / bootstrap не меняются: `ExecStart=…/bot/index.js`.
 - Heartbeat-маркер без vendor telemetry
 - Откат на closed core одной переменной
 
-## Что переносится дальше (по CONTRACT-*.md)
+## UI vs бэкенд
 
-Ориентир — паритет с бандлом 2.0.x:
+Меню и тексты — копия бандла. Часть экранов (SSH/моботы через constructor API, полный monitor collector, OpenClaw install) показывает штатный UI, а действие ещё переносится или требует хаб/overlay.
+
+## Что переносится дальше (по CONTRACT-*.md)
 
 | Подсистема | Статус |
 |------------|--------|
+| Telegram UI (меню/команды) | паритет навигации 0.2 |
 | agent-cc (полный stream, budget, subagents) | каркас → углублять |
-| OpenClaw / agent-oc | заглушка |
-| Monitor / digest / sources | нет |
-| MCP UI | нет |
-| Multi-bot UI («Мои боты») | нет (systemd уже умеет) |
-| Engines / migration screens | нет |
-| Vendor sync/puller | сознательно выключены; локальные обновления — отдельно |
+| OpenClaw / agent-oc | заглушка + экраны |
+| Monitor collector | UI есть, сбор — дальше |
+| MCP install | UI есть, wiring — дальше |
+| Multi-bot via constructor API | UI есть; на сервере — bot-ctl |
+| Vendor sync/puller | выключены против open-core |
 
 Эталон поведения и строки UI — в `vendor/deobfuscated.js` и CHANGELOG.md.
 

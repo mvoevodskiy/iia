@@ -42,7 +42,25 @@ test('autonomy store', async () => {
 });
 
 test('model map covers families', async () => {
-  const { MODEL_MAP } = await import('../src/telegram/keyboards.mjs');
+  const { MODEL_MAP } = await import('../src/telegram/actions.mjs');
   assert.ok(MODEL_MAP.opus.includes('opus'));
   assert.ok(MODEL_MAP.sonnet.includes('sonnet'));
+});
+
+test('hub keyboard matches closed core callbacks', async () => {
+  const { hubKeyboard } = await import('../src/telegram/screens.mjs');
+  const kb = hubKeyboard();
+  const flat = kb.inline_keyboard.flat().map((b) => b.callback_data);
+  for (const need of [
+    'menu:newtask',
+    'menu:projects',
+    'menu:sessions',
+    'menu:skills',
+    'menu:agent',
+    'menu:mcp',
+    'menu:settings',
+    'menu:autonomy',
+  ]) {
+    assert.ok(flat.includes(need), `missing ${need}`);
+  }
 });

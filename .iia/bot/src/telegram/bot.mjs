@@ -1,29 +1,18 @@
-import { Bot, GrammyError } from 'grammy';
+import { Bot } from 'grammy';
 import { autoRetry } from '@grammyjs/auto-retry';
-import { spawn } from 'node:child_process';
+import fs from 'node:fs/promises';
+import path from 'node:path';
 import { runAgentTurn } from '../agent/turn.mjs';
-import { updateState } from '../state.mjs';
+import { hasClaudeAuth, loadState, updateState } from '../state.mjs';
 import { addTask, tryParseScheduleMessage } from '../autonomy/store.mjs';
-import { adminGuard } from './auth.mjs';
-import {
-  applyEffort,
-  applyModelFamily,
-  applyPermMode,
-  renderAbout,
-  renderAgent,
-  renderAutonomy,
-  renderConn,
-  renderEffort,
-  renderModel,
-  renderPermMode,
-  renderRestart,
-  renderSettings,
-  renderStart,
-  renderTasks,
-} from './menus.mjs';
+import { botRoot, ensureDir, workspaceDir } from '../paths.mjs';
+import { adminGuard, isSetupMode } from './auth.mjs';
+import { HELP_CC, HELP_OC, commandsForEngine } from './commands.mjs';
+import { handleCallback } from './router.mjs';
+import { hubScreen, monitorScreen, setupScreen, settingsScreen } from './screens.mjs';
 
 /**
- * @param {import('../config.mjs').readConfig extends Function ? ReturnType<import('../config.mjs').readConfig> : any} cfg
+ * @param {ReturnType<import('../config.mjs').readConfig>} cfg
  */
 export function createBot(cfg) {
   const bot = new Bot(cfg.botToken);
@@ -31,13 +20,71 @@ export function createBot(cfg) {
 
   /** @type {Map<number, AbortController>} */
   const running = new Map();
-  /** @type {Map<number, 'auth-token'>} */
+  /** @type {Map<number, string>} */
   const pending = new Map();
 
   bot.use(adminGuard(cfg.adminId));
 
   bot.command('start', async (ctx) => {
-    const view = await renderStart(cfg);
+    const { state } = await loadState();
+    await updateState((s) => {
+      s.chatId = ctx.chat.id;
+      s.userId = ctx.from?.id;
+      s.ownerUsername = ctx.from?.username || null;
+      if (s.ccEffort === undefined) s.ccEffort = 'xhigh';
+      if (s.dailySpendLimit === undefined) s.dailySpendLimit = 10;
+      if (s.timezone === undefined) s.timezone = cfg.timezone;
+      return s;
+    });
+    if (isSetupMode(state)) {
+      const view = setupScreen();
+      await ctx.reply(view.text, { parse_mode: 'HTML', reply_markup: view.keyboard });
+      return;
+    }
+    const view = hubScreen();
+    await ctx.reply(view.text, { reply_markup: view.keyboard });
+  });
+
+  bot.command('help', async (ctx) => {
+    const { state } = await loadState();
+    await ctx.reply(state.engine === 'oc' ? HELP_OC : HELP_CC, { parse_mode: 'HTML' });
+  });
+
+  bot.command('claude', async (ctx) => {
+    await ctx.reply(`<b>Режим Claude</b> — что доступно в этом режиме:\n\n${HELP_CC}`, {
+      parse_mode: 'HTML',
+    });
+  });
+
+  bot.command('openclaw', async (ctx) => {
+    if (process.env.JARVIS_CC_ONLY === '1') {
+      await ctx.reply(
+        'Этот бот работает только с 👾 Claude Code.\nOpenClaw: /settings → ⚙️ Движки → ➕ OpenClaw.',
+      );
+      return;
+    }
+    await ctx.reply(`<b>Режим OpenClaw</b> — что доступно в этом режиме:\n\n${HELP_OC}`, {
+      parse_mode: 'HTML',
+    });
+  });
+
+  bot.command('settings', async (ctx) => {
+    const { state } = await loadState();
+    const view = settingsScreen(state);
+    await ctx.reply(view.text, { parse_mode: 'HTML', reply_markup: view.keyboard });
+  });
+
+  bot.command('monitor', async (ctx) => {
+    const view = monitorScreen();
+    await ctx.reply(view.text, { parse_mode: 'HTML', reply_markup: view.keyboard });
+  });
+  bot.command('digest', async (ctx) => {
+    const view = monitorScreen();
+    await ctx.reply(view.text, { parse_mode: 'HTML', reply_markup: view.keyboard });
+  });
+  bot.command('sources', async (ctx) => {
+    const { monitorSourcesScreen } = await import('./screens.mjs');
+    const view = monitorSourcesScreen();
     await ctx.reply(view.text, { parse_mode: 'HTML', reply_markup: view.keyboard });
   });
 
@@ -53,128 +100,211 @@ export function createBot(cfg) {
   });
 
   bot.command('newtask', async (ctx) => {
-    const view = await renderAutonomy();
+    await updateState((s) => {
+      delete s.ccSessionId;
+      return s;
+    });
+    await ctx.reply('Новая сессия. Пиши задачу.');
+  });
+
+  bot.command('clear', async (ctx) => {
+    await updateState((s) => {
+      delete s.ccSessionId;
+      return s;
+    });
+    await ctx.reply('Контекст сброшен.');
+  });
+
+  bot.command('compact', async (ctx) => {
+    await ctx.reply('Сжатие контекста: отправь агенту /compact в ходе или дождись автоcompact.');
+  });
+
+  bot.command('undo', async (ctx) => {
+    await ctx.reply('Отмена правки: скажи агенту, какой файл вернуть, или /nocheck в штатном ядре.');
+  });
+
+  bot.command('sessions', async (ctx) => {
+    const { sessionsScreen } = await import('./screens.mjs');
+    const view = sessionsScreen();
     await ctx.reply(view.text, { parse_mode: 'HTML', reply_markup: view.keyboard });
   });
 
+  bot.command('projects', async (ctx) => {
+    const { projectsScreen } = await import('./screens.mjs');
+    const view = projectsScreen();
+    await ctx.reply(view.text, { parse_mode: 'HTML', reply_markup: view.keyboard });
+  });
+
+  bot.command('skills', async (ctx) => {
+    const { skillsScreen } = await import('./screens.mjs');
+    const view = skillsScreen();
+    await ctx.reply(view.text, { parse_mode: 'HTML', reply_markup: view.keyboard });
+  });
+
+  bot.command('status', async (ctx) => {
+    const { state } = await loadState();
+    await ctx.reply(
+      [
+        `<b>Статус</b>`,
+        `Бот: <code>${cfg.botId}</code>`,
+        `Движок: ${state.engine === 'oc' ? 'OpenClaw' : 'Claude Code'}`,
+        `Модель: <code>${state.ccModel || state.model || 'opus'}</code>`,
+        `Workspace: <code>${cfg.workspace}</code>`,
+        `Сессия: <code>${(state.ccSessionId || '—').slice(0, 12)}</code>`,
+      ].join('\n'),
+      { parse_mode: 'HTML' },
+    );
+  });
+
+  bot.command('cost', async (ctx) => {
+    const { state } = await loadState();
+    const day = new Date().toISOString().slice(0, 10);
+    const spent = state.costHistory?.[day] ?? 0;
+    const lim = state.dailySpendLimit ?? 0;
+    await ctx.reply(
+      `Расход за сегодня: <b>$${Number(spent).toFixed(2)}</b>${lim > 0 ? ` / лимит $${lim}` : ''}`,
+      { parse_mode: 'HTML' },
+    );
+  });
+
+  bot.command('autostatus', async (ctx) => {
+    const { autonomyHistoryScreen } = await import('./screens.mjs');
+    const view = autonomyHistoryScreen();
+    await ctx.reply(view.text, { parse_mode: 'HTML', reply_markup: view.keyboard });
+  });
+
+  bot.command('autoactions', async (ctx) => {
+    const { autonomyTasksScreen } = await import('./screens.mjs');
+    const view = await autonomyTasksScreen();
+    await ctx.reply(view.text, { parse_mode: 'HTML', reply_markup: view.keyboard });
+  });
+
+  bot.command('connect', async (ctx) => {
+    await ctx.reply(
+      'VS Code туннель: скажи агенту поднять code-server/tunnel или открой /settings → Системные → SSH.',
+    );
+  });
+
+  bot.command('recovery', async (ctx) => {
+    await ctx.reply(
+      'Аварийный доступ: SSH на сервер под пользователем client. Ключи — /settings → Системные → SSH.',
+    );
+  });
+
+  bot.command('feedback', async (ctx) => {
+    pending.set(ctx.chat.id, 'feedback');
+    await ctx.reply('Напиши отзыв следующим сообщением — сохраню в workspace/ops/feedback.md.');
+  });
+
   bot.on('callback_query:data', async (ctx) => {
-    const data = ctx.callbackQuery.data;
-    await ctx.answerCallbackQuery().catch(() => {});
-    const chatId = ctx.chat.id;
-    const msgId = ctx.callbackQuery.message?.message_id;
-
-    const edit = async (view) => {
-      try {
-        await ctx.api.editMessageText(chatId, msgId, view.text, {
-          parse_mode: 'HTML',
-          reply_markup: view.keyboard,
-        });
-      } catch (err) {
-        if (!(err instanceof GrammyError && /not modified/i.test(err.description || ''))) {
-          await ctx.reply(view.text, { parse_mode: 'HTML', reply_markup: view.keyboard });
-        }
-      }
-    };
-
-    switch (true) {
-      case data === 'menu:back':
-      case data === 'menu:close':
-        return edit(await renderStart(cfg));
-      case data === 'menu:settings':
-        return edit(await renderSettings());
-      case data === 'menu:agent':
-        return edit(await renderAgent());
-      case data === 'menu:autonomy':
-        return edit(await renderAutonomy());
-      case data === 'menu:about':
-        return edit(renderAbout(cfg));
-      case data === 'settings:conn':
-        return edit(await renderConn());
-      case data === 'settings:auth':
-        pending.set(chatId, 'auth-token');
-        return edit({
-          text: 'Пришли следующим сообщением токен Claude (<code>claude setup-token</code>) или ключ <code>sk-ant-…</code>.\nОтмена: /start',
-          keyboard: (await renderConn()).keyboard,
-        });
-      case data === 'settings:model':
-        return edit(renderModel());
-      case data === 'settings:effort':
-        return edit(renderEffort());
-      case data === 'settings:permmode':
-        return edit(renderPermMode());
-      case data === 'settings:restart':
-        return edit(renderRestart());
-      case data === 'settings:restart:do':
-        await ctx.reply('Перезапускаюсь…');
-        setTimeout(() => restartSelf(), 500);
-        return;
-      case data.startsWith('settings:model:set:'): {
-        const family = data.split(':').pop();
-        const model = await applyModelFamily(family);
-        await ctx.reply(model ? `Модель: <code>${model}</code>` : 'Неизвестная модель', {
-          parse_mode: 'HTML',
-        });
-        return edit(await renderAgent());
-      }
-      case data === 'settings:model:fable:ask':
-        await applyModelFamily('fable');
-        await ctx.reply('Fable включена. На Pro она может тратить usage credits сверх подписки.');
-        return edit(await renderAgent());
-      case data.startsWith('settings:effort:set:'): {
-        const v = data.split(':').pop();
-        await applyEffort(v);
-        return edit(await renderAgent());
-      }
-      case data.startsWith('settings:permmode:set:'): {
-        const v = data.slice('settings:permmode:set:'.length);
-        await applyPermMode(v);
-        return edit(await renderAgent());
-      }
-      case data === 'auto:tasks':
-        return edit(await renderTasks());
-      case data === 'auto:what':
-        return edit({
-          text: [
-            '<b>Что такое автономка</b>',
-            'Фоновые задачи по расписанию без тебя в чате.',
-            'Пример: «каждые 24 часа собери краткий дайджест из ~/workspace/memory».',
-            'Правила: см. <code>~/.iia/AUTONOMY.md</code>.',
-          ].join('\n'),
-          keyboard: (await renderAutonomy()).keyboard,
-        });
-      default:
-        return;
-    }
+    await handleCallback({ bot, cfg, pending, ctx });
   });
 
   bot.on('message:text', async (ctx) => {
     const text = ctx.message.text || '';
     const chatId = ctx.chat.id;
+    if (text.startsWith('/')) return;
 
-    if (pending.get(chatId) === 'auth-token') {
+    const pend = pending.get(chatId);
+    if (pend === 'auth-token') {
       pending.delete(chatId);
       await saveAuthToken(text);
-      await ctx.reply('Токен сохранён в окружение процесса и state. Перезапусти бота через systemd, чтобы закрепить в .env навсегда — или используй «Перезапуск» после записи в файл.');
-      // Persist into bot .env if possible
       try {
-        await persistTokenToEnvFile(text);
-        await ctx.reply('Записал в `.env` бота. Делаю мягкий выход для подхвата systemd…');
-        setTimeout(() => process.exit(0), 800);
+        await persistEnvKV(
+          text.trim().startsWith('sk-ant-') ? 'ANTHROPIC_API_KEY' : 'CLAUDE_CODE_OAUTH_TOKEN',
+          text.trim(),
+        );
+        await ctx.reply('Токен сохранён. Перезапускаюсь…');
+        setTimeout(() => process.exit(0), 600);
       } catch (err) {
-        await ctx.reply(`Не смог записать .env: ${err.message}. Задай CLAUDE_CODE_OAUTH_TOKEN вручную.`);
+        await ctx.reply(`Токен в процессе есть, .env не записался: ${err.message}`);
       }
       return;
     }
+    if (pend === 'timezone') {
+      pending.delete(chatId);
+      await updateState((s) => {
+        s.timezone = text.trim();
+        return s;
+      });
+      await ctx.reply(`Часовой пояс: <code>${text.trim()}</code>`, { parse_mode: 'HTML' });
+      return;
+    }
+    if (pend?.startsWith('env:')) {
+      pending.delete(chatId);
+      const key = pend.slice(4);
+      await persistEnvKV(key, text.trim());
+      await ctx.reply(`Сохранил <code>${key}</code>.`, { parse_mode: 'HTML' });
+      return;
+    }
+    if (pend === 'feedback') {
+      pending.delete(chatId);
+      const file = path.join(workspaceDir(), 'ops', 'feedback.md');
+      ensureDir(path.dirname(file));
+      await fs.appendFile(file, `\n## ${new Date().toISOString()}\n\n${text}\n`);
+      await ctx.reply('Спасибо, записал.');
+      return;
+    }
+    if (pend === 'new-project') {
+      pending.delete(chatId);
+      const name = text.trim().replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 64);
+      if (!name) {
+        await ctx.reply('Имя не подошло. Только латиница, цифры, -_.');
+        return;
+      }
+      const dir = path.join(process.env.HOME || '', 'projects', name);
+      await fs.mkdir(dir, { recursive: true });
+      await updateState((s) => {
+        s.activeProject = name;
+        return s;
+      });
+      await ctx.reply(`✔ Проект <code>${name}</code> создан и активирован.`, { parse_mode: 'HTML' });
+      return;
+    }
+    if (pend === 'mon-source') {
+      pending.delete(chatId);
+      await ctx.reply(
+        'Источник принял. Полный collector мониторинга ещё переносится — ссылка сохранена в заметках владельца пока как текст задачи.',
+      );
+      await addTask({
+        title: `monitor:${text.trim().slice(0, 40)}`,
+        prompt: `Добавь и веди источник мониторинга: ${text.trim()}`,
+        everyHours: 24,
+        enabled: false,
+      });
+      return;
+    }
+    if (pend === 'bot-token') {
+      pending.delete(chatId);
+      await ctx.reply(
+        'Токен получил. Создание второго бота идёт через constructor API / bot-ctl — в open-core без хаба добавь вручную: sudo bot-ctl / multibot install.',
+      );
+      return;
+    }
 
-    if (text.startsWith('/')) return;
+    const { state } = await loadState();
+    if (isSetupMode(state)) {
+      const view = setupScreen();
+      await ctx.reply(view.text, { parse_mode: 'HTML', reply_markup: view.keyboard });
+      return;
+    }
 
     const scheduled = tryParseScheduleMessage(text);
     if (scheduled) {
       const task = await addTask(scheduled);
       await ctx.reply(
-        `Задача сохранена: <b>${escapeHtml(task.title)}</b>\nКаждые ${task.everyHours} ч.\nСписок: /start → Автономка.`,
+        `Задача сохранена: <b>${escapeHtml(task.title)}</b>\nКаждые ${task.everyHours} ч.`,
         { parse_mode: 'HTML' },
       );
+      return;
+    }
+
+    // маркеры автономки из ответа агента
+    const marker = text.match(/\[SCHEDULE_TASK\]([\s\S]*?)\[\/SCHEDULE_TASK\]/i);
+    if (marker) {
+      const body = marker[1].trim();
+      const task = await addTask({ prompt: body, title: body.slice(0, 80), everyHours: 24 });
+      await ctx.reply(`Задача из маркера: <b>${escapeHtml(task.title)}</b>`, { parse_mode: 'HTML' });
       return;
     }
 
@@ -183,10 +313,15 @@ export function createBot(cfg) {
       return;
     }
 
+    if (!hasClaudeAuth(process.env, state)) {
+      const view = setupScreen();
+      await ctx.reply(view.text, { parse_mode: 'HTML', reply_markup: view.keyboard });
+      return;
+    }
+
     const ac = new AbortController();
     running.set(chatId, ac);
     const status = await ctx.reply('⏳ Думаю…');
-
     const bump = async (label) => {
       try {
         await ctx.api.editMessageText(chatId, status.message_id, label);
@@ -200,13 +335,9 @@ export function createBot(cfg) {
         prompt: text,
         signal: ac.signal,
         onStatus(ev) {
-          if (ev.kind === 'tool') {
-            void bump(`🔧 ${ev.name}${ev.input ? `: ${ev.input}` : ''}`);
-          } else if (ev.kind === 'thinking') {
-            void bump('💭 Думаю…');
-          } else if (ev.kind === 'init') {
-            void bump(`🧠 ${ev.model || 'модель'}…`);
-          }
+          if (ev.kind === 'tool') void bump(`🔧 ${ev.name}${ev.input ? `: ${ev.input}` : ''}`);
+          else if (ev.kind === 'thinking') void bump('💭 Думаю…');
+          else if (ev.kind === 'init') void bump(`🧠 ${ev.model || 'модель'}…`);
         },
       });
       await bump('✅');
@@ -217,6 +348,20 @@ export function createBot(cfg) {
       running.delete(chatId);
     }
   });
+
+  bot.on(['message:voice', 'message:photo', 'message:video', 'message:document'], async (ctx) => {
+    const { state } = await loadState();
+    if (isSetupMode(state)) {
+      await ctx.reply('Сначала подключи AI: /start');
+      return;
+    }
+    await ctx.reply('Медиа принято. В open-core пока перешли текст с описанием или дождись порта STT/vision.');
+  });
+
+  // set commands after start
+  bot.api
+    .setMyCommands(commandsForEngine('cc', process.env.JARVIS_CC_ONLY === '1'))
+    .catch((err) => console.error('[iia/bot] setMyCommands failed:', err.message));
 
   return bot;
 }
@@ -236,10 +381,7 @@ async function saveAuthToken(raw) {
   });
 }
 
-async function persistTokenToEnvFile(raw) {
-  const fs = await import('node:fs/promises');
-  const path = await import('node:path');
-  const { botRoot, ensureDir } = await import('../paths.mjs');
+async function persistEnvKV(key, value) {
   const envPath = path.join(botRoot(), '.env');
   ensureDir(botRoot());
   let existing = '';
@@ -248,23 +390,9 @@ async function persistTokenToEnvFile(raw) {
   } catch {
     existing = '';
   }
-  const token = raw.trim();
-  const key = token.startsWith('sk-ant-') ? 'ANTHROPIC_API_KEY' : 'CLAUDE_CODE_OAUTH_TOKEN';
   const lines = existing.split('\n').filter((l) => l && !l.startsWith(`${key}=`));
-  lines.push(`${key}=${token}`);
+  lines.push(`${key}=${value}`);
   await fs.writeFile(envPath, `${lines.join('\n')}\n`, { mode: 0o600 });
-}
-
-function restartSelf() {
-  // systemd Restart=always поднимет процесс; bot-ctl если есть
-  try {
-    spawn('sudo', ['bot-ctl.sh', 'restart', process.env.IIA_BOT_ID || 'default'], {
-      detached: true,
-      stdio: 'ignore',
-    }).unref();
-  } catch {
-    process.exit(0);
-  }
 }
 
 async function replyChunked(ctx, text) {
@@ -279,9 +407,6 @@ function escapeHtml(s) {
   return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
-/**
- * Устойчивый polling (409 / сетевые сбои) — упрощённый Hl().
- */
 export async function runPolling(bot, { log = console.error } = {}) {
   let fastFails = 0;
   for (;;) {
