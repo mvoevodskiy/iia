@@ -1,0 +1,58 @@
+# Что ставит bootstrap (ядро оркестратора IIA).
+# Продуктовые проекты владельца и их секреты — НЕ входят.
+# Обвязка CLI (overlay/) — НЕ входит, пока не вызван overlay/install.sh / --with-ext.
+
+SOURCE → TARGET
+
+.iia/bot/                 → /home/client/.iia/bot/          # БЕЗ bot/ext/, bot/run.mjs
+.iia/puller.cjs           → /home/client/.iia/puller.cjs
+.iia/sync.cjs             → /home/client/.iia/sync.cjs
+.iia/guard/               → /home/client/.iia/guard/
+.iia/dialogue-mcp/        → /home/client/.iia/dialogue-mcp/
+.iia/agent-hooks/         → /home/client/.iia/agent-hooks/
+.iia/templates/           → /home/client/.iia/templates/
+.iia/engine-kit/          → /home/client/.iia/engine-kit/
+.iia/monitor/             → /home/client/.iia/monitor/      # пустой каркас
+.iia/*.md                 → /home/client/.iia/
+
+bootstrap/workspace-seed/ → /home/client/workspace/   # ТОЛЬКО seed
+  CLAUDE.md, SOUL.md — без личности владельца и без продуктов
+  SERVICES.md, TELEGRAM-TOOLS.md, tools/, .claude/skills/_always/
+  ops/costs.md — пустой шаблон
+  НЕ копировать: memory содержимое
+
+Повторный install без --reset-workspace НЕ перезаписывает живой workspace.
+Политика: bootstrap/UPDATE-POLICY.md (system-блоки, не wholesale).
+
+usr-local-bin/*           → /usr/local/bin/   # stock bot-ctl (без add/remove обвязки)
+usr-local-sbin/jarvis-engine → /usr/local/sbin/ + /usr/local/lib/jarvis-engine/jarvis-engine.good
+
+systemd/iia-bot@.service (+ drop-ins ядра)
+  ExecStart=/usr/bin/node …/bot/index.js     # штатное ядро
+systemd/iia-sync.* (+ drop-ins)
+systemd/iia-tick@.service + iia-tick-puller.timer
+systemd/iia-pull-now.*
+systemd/iia-base-pulse.*
+systemd/jarvis-engine*
+systemd/drop-ins/system-iia-bot.slice.d/
+etc/iia-tick/puller.conf  → /etc/iia-tick/puller.conf
+etc/sudoers.d/{iia-admin,agent-client,iia-tick,jarvis-client}
+
+Создаётся на месте:
+  /home/client/projects/          # пусто — проекты бот заводит сам
+  /home/client/workspace/memory/  # пусто
+  /home/client/.iia/bots/<id>/    # cwd (bind), .env, sessions/…
+  fstab bind: workspace → bots/<id>/cwd
+
+НЕ копируется:
+  overlay/                        # только через overlay/install.sh
+  bots-runtime/, живой workspace/ из чужих снимков
+  *.env (значения), .puller-state.json, state.json живого сервера
+  iia-backup.* , iia-oc-install.*
+
+Секреты ядра (см. env/iia.env.example):
+  BOT_TOKEN (per-bot), ADMIN_ID, CLAUDE_CODE_OAUTH_TOKEN,
+  SYNC_URL, SYNC_KEY, PROXYAPI_KEY, DEEPGRAM_API_KEY,
+  AUTONOMY_DAILY_CAP_TOKENS, GITFLIC_TOKEN (опц.), APIFY/SUPADATA (опц.)
+
+Секреты продуктов — запрещены в чистой установке.

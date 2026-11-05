@@ -1,0 +1,28 @@
+[Unit]
+Description=jarvis-engine: one request of the owner's bot (closed list of actions)
+# No start limit: a refused request must never make the next legitimate one wait for a reboot.
+StartLimitIntervalSec=0
+
+[Service]
+Type=oneshot
+# 0.5.8: OpenClaw is root through sudo. A helper that is gone, empty or a link is put back from its own copy (written by
+# its setup and tick) before the start; one that is there is never touched (an update replaces it by a rename).
+ExecStartPre=-/bin/sh -c '[ -s /usr/local/sbin/jarvis-engine ] && [ ! -L /usr/local/sbin/jarvis-engine ] || { [ -s /usr/local/lib/jarvis-engine/jarvis-engine.good ] && cp -- /usr/local/lib/jarvis-engine/jarvis-engine.good /usr/local/sbin/jarvis-engine.restore && chmod 0755 /usr/local/sbin/jarvis-engine.restore && mv -f -- /usr/local/sbin/jarvis-engine.restore /usr/local/sbin/jarvis-engine && echo JARVIS_ENGINE_HELPER_RESTORED; }'
+ExecStart=/usr/bin/python3 -IS /usr/local/sbin/jarvis-engine run
+WorkingDirectory=/
+UMask=0077
+PrivateTmp=yes
+# Children that run as openclaw or client see only their own processes (root sees all by CAP_SYS_PTRACE);
+# nothing started from here can gain privileges.
+ProtectProc=invisible
+NoNewPrivileges=yes
+LockPersonality=yes
+# install (<= 40 min) + configure (<= 15 min); SIGTERM gives the helper time to kill its children and erase
+# the run's work dir (the bot token of an add-openclaw lives there for the run only).
+TimeoutStartSec=70min
+TimeoutStopSec=30s
+MemoryMax=1536M
+MemorySwapMax=256M
+Nice=5
+LogRateLimitIntervalSec=30s
+LogRateLimitBurst=100

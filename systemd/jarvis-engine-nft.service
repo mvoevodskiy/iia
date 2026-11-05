@@ -1,0 +1,17 @@
+[Unit]
+Description=jarvis-engine: only root and openclaw reach 127.0.0.1/::1 ports 19300-19410
+# Own table (inet jarvis_engine), own oneshot. nftables.service is never enabled and
+# /etc/nftables.conf never written: that file starts with `flush ruleset` and would drop ufw's rules.
+After=ufw.service
+Before=systemd-user-sessions.service
+ConditionPathExists=/etc/jarvis-engine/nft.conf
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+# nft.conf declares, deletes and redefines the table in one transaction: idempotent, survives ufw reload.
+ExecStart=/usr/sbin/nft -f /etc/jarvis-engine/nft.conf
+ExecReload=/usr/sbin/nft -f /etc/jarvis-engine/nft.conf
+
+[Install]
+WantedBy=multi-user.target

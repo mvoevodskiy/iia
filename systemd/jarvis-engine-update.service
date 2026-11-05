@@ -1,0 +1,19 @@
+[Unit]
+Description=jarvis-engine: check and install a helper release delivered by the puller
+StartLimitIntervalSec=0
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# The updater reads the delivered file once (O_NOFOLLOW) into /root/jarvis-engine and works on the copy; it installs
+# it only when our release key signed it, our API's manifest names exactly its sha256 and its version is higher.
+ExecStart=/usr/bin/python3 -IS /usr/local/lib/jarvis-engine/update
+WorkingDirectory=/
+UMask=0077
+PrivateTmp=yes
+ProtectProc=invisible
+NoNewPrivileges=yes
+LockPersonality=yes
+TimeoutStopSec=30s
+TimeoutStartSec=20min

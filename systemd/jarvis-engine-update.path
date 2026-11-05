@@ -1,0 +1,12 @@
+[Unit]
+Description=jarvis-engine: a helper release delivered by the puller
+# Installed once and never replaced by a helper update (the update path must survive a bad release).
+StartLimitBurst=0
+
+[Path]
+PathChanged=/home/client/.iia/engine/jarvis-engine.next
+PathChanged=/home/client/.iia/engine/jarvis-engine.sig
+Unit=jarvis-engine-update.service
+
+[Install]
+WantedBy=paths.target

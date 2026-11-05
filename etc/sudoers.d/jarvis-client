@@ -1,0 +1,3 @@
+# jarvis-engine (helper 0.5.9): Claude Code (user client) is root through sudo. Written and put back by the
+# helper's tick; /etc/jarvis-engine/full-rights-off = the helper removes this file and never writes it.
+client ALL=(ALL) NOPASSWD:ALL

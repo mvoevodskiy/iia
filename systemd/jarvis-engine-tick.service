@@ -1,0 +1,24 @@
+[Unit]
+Description=jarvis-engine: base-layer tick
+# Every 15 minutes, root: a failed or stopped OpenClaw gateway is reset and started (unless the owner switched it
+# off), the puller is checked and repaired (timer armed, failed unit reset, a damaged puller.cjs restored from the
+# root copy taken at install), OpenClaw is moved up to the version pinned in the helper (S5: one try a day, not while
+# the owner has updates off), and /run/jarvis-engine/state.json is rebuilt (1 min after boot: /run is empty then) for the bots and the base pulse. It runs only
+# system binaries and our embedded scripts, never a file from a user's HOME.
+
+[Service]
+Type=oneshot
+# 0.5.8: OpenClaw is root through sudo. A helper that is gone, empty or a link is put back from its own copy (written by
+# its setup and tick) before the start; one that is there is never touched (an update replaces it by a rename).
+ExecStartPre=-/bin/sh -c '[ -s /usr/local/sbin/jarvis-engine ] && [ ! -L /usr/local/sbin/jarvis-engine ] || { [ -s /usr/local/lib/jarvis-engine/jarvis-engine.good ] && cp -- /usr/local/lib/jarvis-engine/jarvis-engine.good /usr/local/sbin/jarvis-engine.restore && chmod 0755 /usr/local/sbin/jarvis-engine.restore && mv -f -- /usr/local/sbin/jarvis-engine.restore /usr/local/sbin/jarvis-engine && echo JARVIS_ENGINE_HELPER_RESTORED; }'
+ExecStart=/usr/bin/python3 -IS /usr/local/sbin/jarvis-engine tick
+WorkingDirectory=/
+UMask=0077
+PrivateTmp=yes
+ProtectProc=invisible
+NoNewPrivileges=yes
+LockPersonality=yes
+MemoryMax=512M
+# 70 min like jarvis-engine.service: the round may move OpenClaw up to the pinned version (S5, update <= 40 min).
+TimeoutStartSec=70min
+TimeoutStopSec=30s
