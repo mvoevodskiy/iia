@@ -1,0 +1,168 @@
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { spawn } from 'node:child_process';
+import { Bot } from 'grammy';
+
+// One subprocess per scenario keeps prototype patches and env writes isolated.
+const scenario = process.argv[2];
+const fixtureHome = process.env.HOME;
+if (!fixtureHome || fixtureHome !== process.env.REFERENCE_HOME || os.homedir() !== fixtureHome) {
+  throw new Error('The reference harness requires its isolated HOME');
+}
+if (!globalThis[Symbol.for('msb.reference.networkBlocked')]) {
+  throw new Error('The harness must run with the network-deny preload');
+}
+
+const owner = 42;
+const thread = '0199a213-81c0-7800-8aa1-bbab2a035a53';
+const session = `ext:codex:${thread}`;
+const botDir = path.join(fixtureHome, '.msb/bots/default');
+const stateFile = path.join(botDir, 'state.json');
+const storeFile = path.join(botDir, 'ext-providers.json');
+const authFile = path.join(fixtureHome, '.codex/auth.json');
+const binDir = path.join(fixtureHome, 'bin');
+const traceFile = path.join(fixtureHome, 'cli-trace.jsonl');
+const effectsFile = path.join(fixtureHome, 'effects.txt');
+const workspace = path.join(fixtureHome, 'workspace');
+await Promise.all([fs.mkdir(botDir, { recursive: true }), fs.mkdir(path.dirname(authFile), { recursive: true }),
+  fs.mkdir(binDir), fs.mkdir(workspace)]);
+const fake = (await fs.readFile(new URL('./fake-provider-cli.mjs', import.meta.url), 'utf8'))
+  .replace(/^#![^\n]+/, `#!${process.execPath}`);
+for (const name of ['codex', 'claude']) await fs.writeFile(path.join(binDir, name), fake, { mode: 0o700 });
+
+Object.assign(process.env, {
+  PATH: binDir, MSB_BOT_ID: 'default', ADMIN_ID: String(owner),
+  MSB_REAL_CLAUDE: path.join(binDir, 'claude'),
+  CLAUDE_CODE_OAUTH_TOKEN: 'reference-claude-oauth-not-a-real-token',
+  REFERENCE_TRACE: traceFile, REFERENCE_EFFECTS: effectsFile,
+  REFERENCE_LOGIN: scenario === 'invalid-login' ? 'invalid' : 'valid',
+  REFERENCE_SCENARIO: scenario,
+});
+const nativeAuth = JSON.stringify({ auth_mode: 'chatgpt', tokens: {
+  access_token: 'reference-access-not-a-real-token', refresh_token: 'reference-refresh-not-a-real-token',
+} });
+await fs.writeFile(authFile, nativeAuth, { mode: 0o600 });
+await fs.writeFile(path.join(fixtureHome, '.codex/config.toml'),
+  'model = "gpt-6.1-sol"\nmodel_reasoning_effort = "high"\napproval_policy = "never"\n', { mode: 0o600 });
+const initialState = { engine: 'cc', authMode: 'subscription', hasSubscriptionAuth: true,
+  ccSessionId: 'reference-claude-session', userId: owner, chatId: owner };
+const initialStore = { version: 1, active: 'claude', sessions: {}, models: {}, efforts: {}, updatedAt: null };
+const writeJSON = (file, value) => fs.writeFile(file, JSON.stringify(value), { mode: 0o600 });
+const readJSON = async (file) => JSON.parse(await fs.readFile(file, 'utf8'));
+await writeJSON(stateFile, initialState);
+await writeJSON(storeFile, initialStore);
+
+async function trace() {
+  const text = await fs.readFile(traceFile, 'utf8').catch((error) => {
+    if (error.code === 'ENOENT') return '';
+    throw error;
+  });
+  return text.trim() ? text.trim().split('\n').map(JSON.parse) : [];
+}
+
+async function runShim(argv) {
+  const script = fileURLToPath(new URL('../../../shim/run-turn.mjs', import.meta.url));
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, [script, ...argv], {
+      cwd: workspace, env: { ...process.env }, stdio: ['pipe', 'pipe', 'pipe'],
+    });
+    let stdout = '';
+    let stderr = '';
+    const timer = setTimeout(() => { child.kill('SIGKILL'); }, 8_000);
+    child.stdout.on('data', (chunk) => { stdout += chunk; });
+    child.stderr.on('data', (chunk) => { stderr += chunk; });
+    child.once('error', (error) => { clearTimeout(timer); reject(error); });
+    child.once('close', (code, signal) => {
+      clearTimeout(timer);
+      if (signal) return reject(new Error(`Reference shim terminated by ${signal}: ${stderr}`));
+      const events = stdout.trim().split('\n').filter(Boolean).map(JSON.parse);
+      resolve({ code, events });
+    });
+    child.stdin.end('reference prompt');
+  });
+}
+
+async function hookedBot() {
+  const { prepare } = await import('../../../install.mjs');
+  await prepare();
+  const botInfo = { id: 123456, is_bot: true, first_name: 'Reference', username: 'provider_reference_bot' };
+  const bot = new Bot('123456:REFERENCE_NOT_A_REAL_BOT_TOKEN', { botInfo });
+  const calls = [];
+  let messageId = 10;
+  bot.api.config.use(async (_previous, method, payload) => {
+    calls.push({ method, payload });
+    if (method === 'answerCallbackQuery') return { ok: true, result: true };
+    if (method === 'sendMessage' || method === 'editMessageText') return { ok: true, result: {
+      message_id: payload.message_id || messageId++, date: 0,
+      chat: { id: payload.chat_id, type: 'private' }, text: payload.text,
+    } };
+    throw new Error(`Unexpected Telegram API method: ${method}`);
+  });
+  const root = fileURLToPath(new URL('../../../../../../', import.meta.url));
+  const { adminGuard } = await import(pathToFileURL(path.join(root, '.msb/bot/src/telegram/auth.mjs')).href);
+  bot.use(adminGuard(owner));
+  bot.on('callback_query:data', (ctx) => ctx.answerCallbackQuery());
+  let updateId = 1;
+  const callback = (data, actor = owner) => bot.handleUpdate({
+    update_id: updateId++, callback_query: { id: `reference-${updateId}`, chat_instance: 'reference', data,
+      from: { id: actor, is_bot: false, first_name: 'Reference actor' },
+      message: { message_id: 1, date: 0, from: botInfo, chat: { id: actor, type: 'private' } },
+    },
+  });
+  return { bot, callback, calls };
+}
+
+let result;
+if (scenario === 'roundtrip') {
+  const f = await hookedBot();
+  const originalClaudeAuth = process.env.CLAUDE_CODE_OAUTH_TOKEN;
+  await f.callback('ext:conn:set:codex');
+  const codexState = await readJSON(stateFile);
+  const codexStore = await readJSON(storeFile);
+  // Existing completed Codex conversation at the point of switching back.
+  await writeJSON(stateFile, { ...codexState, ccSessionId: session });
+  await f.callback('ext:conn:set:claude');
+  const claudeState = await readJSON(stateFile);
+  const claudeStore = await readJSON(storeFile);
+  const foreign = await runShim(['-p', '--resume', session, '--model', 'sonnet']);
+  const own = await runShim(['-p', '--resume', 'reference-claude-session', '--model', 'sonnet']);
+  const claudeCalls = (await trace()).filter((entry) => entry.name === 'claude');
+  result = { firstProvider: codexStore.active, firstMarker: codexState.extAuthBypass,
+    oldClaudeSessionCleared: !codexState.ccSessionId,
+    finalProvider: claudeStore.active, finalMarkerRemoved: !claudeState.extAuthBypass,
+    foreignSessionCleared: !claudeState.ccSessionId,
+    nativeAuthUnchanged: await fs.readFile(authFile, 'utf8') === nativeAuth,
+    claudeAuthUnchanged: process.env.CLAUDE_CODE_OAUTH_TOKEN === originalClaudeAuth,
+    foreignCode: foreign.code, ownCode: own.code,
+    forwarded: claudeCalls.map(({ argv, stdin }) => ({ argv, stdin })) };
+} else if (scenario === 'invalid-login' || scenario === 'foreign-owner') {
+  const f = await hookedBot();
+  const beforeState = await fs.readFile(stateFile, 'utf8');
+  const beforeStore = await fs.readFile(storeFile, 'utf8');
+  await f.callback('ext:conn:set:codex', scenario === 'foreign-owner' ? 43 : owner);
+  result = { provider: (await readJSON(storeFile)).active,
+    sessionId: (await readJSON(stateFile)).ccSessionId ?? null,
+    stateUnchanged: await fs.readFile(stateFile, 'utf8') === beforeState,
+    storeUnchanged: await fs.readFile(storeFile, 'utf8') === beforeStore,
+    loginChecked: (await trace()).some((entry) => entry.name === 'codex' && entry.argv.join(' ') === 'login status'),
+    announcedSwitch: f.calls.some((call) => String(call.payload.text || '').includes('Агент теперь на')),
+    apiCalls: f.calls.length };
+} else if (scenario === 'model-error' || scenario === 'stream-cut') {
+  await writeJSON(storeFile, { ...initialStore, active: 'codex', sessions: { codex: thread } });
+  await writeJSON(stateFile, { ...initialState, extAuthBypass: 'codex', ccSessionId: session });
+  const output = await runShim(['-p', '--resume', session, '--model', 'opus']);
+  const effects = await fs.readFile(effectsFile, 'utf8').catch((error) => {
+    if (error.code === 'ENOENT') return '';
+    throw error;
+  });
+  result = { exitCode: output.code,
+    executions: (await trace()).filter((entry) => entry.name === 'codex' && entry.argv[0] === 'exec').length,
+    effects: effects.trim() ? effects.trim().split('\n').length : 0,
+    savedSession: (await readJSON(storeFile)).sessions.codex ?? null,
+    emittedSessions: [...new Set(output.events.map((event) => event.session_id).filter(Boolean))] };
+} else {
+  throw new Error(`Unknown reference scenario: ${scenario}`);
+}
+process.stdout.write(JSON.stringify(result));
