@@ -117,7 +117,10 @@ test('HTTP: одноразовая ссылка ?tg= — сгорает и бе�
   const withSession = await s.req('GET', `/?tg=${encodeURIComponent(ticket2)}`, {
     headers: { cookie: `pult_sid=${sid}` },
   });
-  assert.ok(withSession.status === 200 || withSession.status === 302);
+  assert.equal(withSession.status, 302, 'remove the used ticket from the address even with a valid session');
+  assert.equal(withSession.headers.location, '/');
+  assert.equal(withSession.headers['set-cookie'], undefined, 'keep the existing session');
+  assert.equal((await s.req('GET', '/', { headers: { cookie: `pult_sid=${sid}` } })).status, 200);
   assert.equal(acceptTgLoginTicket(s.svc.db, ticket2, s.clock.t), false, 'при живой сессии билет тоже сгорел');
 
   // 3) Без сессии этот билет уже не пускает.

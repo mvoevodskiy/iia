@@ -488,6 +488,7 @@ export function createApp(ctx: AppContext): (req: IncomingMessage, res: ServerRe
       if (ticket) {
         if (fullSession(req)) {
           burnTgLoginTicket(db, ticket);
+          return redirect(res, '/'); // Do not retain the consumed ticket in the browser address.
         } else if (acceptTgLoginTicket(db, ticket, ctx.now())) {
           const ip = clientIp(req);
           const ua = req.headers['user-agent'] ?? null;
