@@ -1,82 +1,54 @@
-# MSB open-core
+# Открытое ядро
 
-Читаемое ядро Constructor Agent в `.msb/bot/src/` (env, `state.json`, Claude CLI
-stream-json, overlay `run.mjs`). Закрытый бандл и Jarvis OS-обвязка сняты.
+[← Карта кода](../../docs/CODEMAP.md) · [Профили](shared/README.md) ·
+[Выпуск и откат](../../tools/release/README.md)
 
-## Запуск
+Рабочая реализация находится в `src/`. Старый [vendor](vendor/README.md) — эталон
+сценариев, текстов и визуального поведения (контракты и UI-вырезки). Закрытый бандл
+и Jarvis OS-обвязка сняты. Vendor не экспортируется в runtime поддерживаемого выпуска;
+откат выполняется к предыдущему release code backup.
 
-```bash
-node .msb/bot/index.js
-```
+## Маршруты
 
-systemd / bootstrap: `ExecStart=…/bot/run.mjs` (или `index.js`).
+| Задача | Модуль |
+|---|---|
+| Вход процесса, config, shutdown | [index](index.js) → [main](src/main.mjs) |
+| Меню, формы, голос, stop, ответ | [Telegram](src/telegram/README.md) |
+| CLI, stream, native context, запись сессии | [Исполнение агента](src/agent/README.md) |
+| Голосовой backend | [Media / STT](src/media/README.md) |
+| Данные окружения | [Env](src/env/README.md) |
+| Расписания и источники | [Автономка](src/autonomy/README.md), [Мониторинг](src/monitor/README.md) |
+| Управление экземплярами | [Мои боты](src/bots/README.md) |
+| OS helper | [Engines](src/engines/README.md) |
+| Пульт (веб-панель) | `.msb/pult/` + `/settings` → Системные → Пульт |
+| Codex и другие CLI | [Overlay](../../overlay/bot/ext/README.md) |
 
-## Структура
+## Граница совместимости
 
-```
-.msb/bot/
-├── index.js              ← вход → src/main.mjs
-├── src/
-│   ├── main.mjs
-│   ├── config.mjs / paths.mjs / state.mjs / heartbeat.mjs
-│   ├── agent/            ← Claude Code stream-json
-│   ├── telegram/         ← grammy, меню, ворота ADMIN_ID
-│   └── autonomy/         ← задачи + планировщик
-├── tests/
-└── vendor/
-    ├── CONTRACT-*.md     ← снятые контракты подсистем
-    ├── snippets/         ← вырезки при переносе
-    └── UI-*.md/.tsv      ← эталон UI
-```
+Ядро и overlay читают один [runtime profile](shared/README.md) и используют
+совместимые `state.json`, `ext-providers.json`, CLI argv/stream-json и callback IDs.
+Профиль `jar1` сохраняет `.iia`; профиль `msb` использует `.msb`. Источник кода один.
 
-## Совместимость с обвязкой
+Реализованы текстовый/голосовой ход, Deepgram/STT_COMMAND, отмена хода, прежняя
+индикация и доставка ответа, выбор CLI-провайдера, native Codex context,
+редактирование env, базовые интервальные задачи и сбор источников мониторинга.
+Пульт ставится bootstrap’ом выключенным; включается из Telegram после задания пароля.
+Покрытие конкретных связей указано в модульных картах и [reference README](tests/reference/README.md).
 
-`overlay/bot/run.mjs` по-прежнему:
+## Границы реализации
 
-1. ставит PATH-shim `claude`;
-2. патчит `Bot` до `import('./index.js')`;
-3. читает/пишет `bots/<id>/state.json` и `ext-providers.json`.
+- Фото, видео и документы не имеют полноценного обработчика содержимого.
+- Native MCP/skills inventory и установка MCP через эти экраны не подключены.
+- Часть карточек/действий автономки, разовые таймеры и просмотр её журнала остаются
+  информационными экранами; сохранённые autonomy rights не задают отдельную границу исполнения.
+- Проект можно сохранить в состоянии, но его выбор не переключает cwd runner.
+- Лимит API сохраняется; соответствующее ограничение исполнения не реализовано.
+- Мониторинг пишет JSONL; выбор SQLite в UI не включает SQLite backend.
+- OpenClaw как runner в общем ходе не реализован. Native OS helper имеет отдельные
+  ограниченные действия и отключён для JAR1; это не интеграция OpenClaw в CLI-ход.
+- Проверка своего канала обновлений есть, apply из Telegram не реализован.
 
-Открытое ядро сохраняет поля `authMode`, `hasSubscriptionAuth`, `ccSessionId`,
-`model`, `effort`, `permMode`, `engine`, `extAuthBypass`.
-
-## Что уже есть (0.3)
-
-- Telegram UI: hub / агент / настройки / автономка / мониторинг / MCP / …
-- **Мониторинг рабочий**: источники, poll, дайджест, `~/.msb/monitor/`
-- **Мои боты**: list/add/remove через `sudo bot-ctl.sh` (без хаба создателя)
-- **Переменные окружения**: CRUD в `.env` бота + быстрые ключи
-- **Обновления**: только свой канал `MSB_OWN_UPDATES_URL` (apply — позже); vendor отключён
-- Ход агента Claude CLI, автономка, heartbeat
-- **OS-обвязка**: `msb-engine` (IPC `~/.msb/engine/request`, state `/run/msb-engine/state.json`); см. `docs/tdr/msb-engine-os-replace.md`
-- **Пульт** (`.msb/pult/`): веб-панель ботов/задач/сервера; юниты ставятся bootstrap’ом, **выкл** до `/settings` → Системные → Пульт (`enable-pult` / `disable-pult`)
-
-## Обновления
-
-| Канал | Статус |
-|-------|--------|
-| Vendor puller/sync создателя | не трогает open-core |
-| Свой сервис (`MSB_OWN_UPDATES_URL`) | check есть; apply — когда сервис готов |
-
-## Что дальше
-
-| Подсистема | Статус |
-|------------|--------|
-| agent-cc глубина (budget/subagents) | дальше |
-| OpenClaw | enable/disable через msb-engine; install — v1.1 |
-| MCP install | UI есть |
-| SSH constructor API | overlay / локальный IP |
-| Own updates apply | после сервиса |
-
-Эталон строк UI — в `vendor/UI-SCREENS.md` / `UI-BUTTONS.tsv` и CHANGELOG.md.
-
-## Тесты
-
-```bash
-cd .msb/bot && npm test
-```
-
-## Политика обновлений
-
-Stock puller создателя на open-core не включаем (ломает смысл ветки), либо
-исключаем `bot/**` из манифеста. Канал обвязки `overlay/msb-updates` — свой.
+Сохранённый внешний вид или успешный отдельный тест не доказывают полный паритет.
+Исторические checkpoint-файлы — история проверок. Результат текущего выпуска
+берётся из его same-commit проверки; факт выкладки и живой приёмки фиксируется
+отдельным операторским отчётом для этого source SHA.

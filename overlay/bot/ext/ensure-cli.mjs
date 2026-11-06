@@ -10,6 +10,7 @@ import { findBin } from './adapters/run-cli.mjs';
 import { extToolsBin, extToolsPrefix } from './paths.mjs';
 import { getProvider } from './providers.mjs';
 import { CODEX_NPM_SPEC } from './codex-native.mjs';
+import profile from '../shared/profile.cjs';
 
 const MARK = '[msb/ext/ensure-cli]';
 
@@ -49,9 +50,9 @@ function run(command, args, { cwd, env, timeoutMs = 600_000 } = {}) {
   });
 }
 
-export function enrichPath(env = process.env, home = os.homedir()) {
+export function enrichPath(env = process.env, home = env.HOME || os.homedir()) {
   const extras = [
-    extToolsBin(home),
+    extToolsBin(home, env),
     path.join(home, '.local', 'bin'),
     path.join(home, '.cursor', 'bin'),
   ];
@@ -68,7 +69,7 @@ export function enrichPath(env = process.env, home = os.homedir()) {
 
 export function cliPresent(providerId, env = process.env) {
   const p = getProvider(providerId);
-  if (!p || p.id === 'claude') return { ok: true, bin: process.env.MSB_REAL_CLAUDE || 'claude' };
+  if (!p || p.id === 'claude') return { ok: true, bin: profile.envValue(env, 'MSB_REAL_CLAUDE') || 'claude' };
   const names = providerId === 'cursor' ? ['agent', 'cursor-agent'] : [p.bin];
   for (const name of names) {
     const hit = findBin(name, env);
@@ -77,15 +78,15 @@ export function cliPresent(providerId, env = process.env) {
   return { ok: false, bin: null };
 }
 
-async function ensureNpmPrefix(home) {
-  const prefix = extToolsPrefix(home);
-  const bin = extToolsBin(home);
+async function ensureNpmPrefix(home, env) {
+  const prefix = extToolsPrefix(home, env);
+  const bin = extToolsBin(home, env);
   await fs.promises.mkdir(bin, { recursive: true });
   return { prefix, bin };
 }
 
 async function installNpmPackage(npmName, binName, env, home) {
-  const { prefix } = await ensureNpmPrefix(home);
+  const { prefix } = await ensureNpmPrefix(home, env);
   const childEnv = { ...env, PATH: enrichPath(env, home) };
   console.error(`${MARK} npm i -g --prefix ${prefix} ${npmName}`);
   const res = await run('npm', ['install', '-g', `--prefix`, prefix, npmName], {
@@ -101,7 +102,7 @@ async function installNpmPackage(npmName, binName, env, home) {
   childEnv.PATH = enrichPath(childEnv, home);
   const hit = findBin(binName, childEnv);
   if (!hit) {
-    return { ok: false, error: `${binName} не появился в ${extToolsBin(home)} после npm install` };
+    return { ok: false, error: `${binName} не появился в ${extToolsBin(home, env)} после npm install` };
   }
   return { ok: true, bin: hit, installed: true };
 }
@@ -133,8 +134,8 @@ async function installCursor(env, home) {
 /**
  * @returns {Promise<{ok:boolean, bin?:string, installed?:boolean, skipped?:boolean, error?:string}>}
  */
-export async function ensureProviderCli(providerId, { env = process.env, home = os.homedir(), force = false } = {}) {
-  if (providerId === 'claude') return { ok: true, skipped: true, bin: env.MSB_REAL_CLAUDE || 'claude' };
+export async function ensureProviderCli(providerId, { env = process.env, home = env.HOME || os.homedir(), force = false } = {}) {
+  if (providerId === 'claude') return { ok: true, skipped: true, bin: profile.envValue(env, 'MSB_REAL_CLAUDE') || 'claude' };
 
   const envWithPath = { ...env, PATH: enrichPath(env, home) };
   if (!force) {

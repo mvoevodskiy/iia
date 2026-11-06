@@ -1,6 +1,7 @@
 /**
  * Локальное управление multibot через sudo bot-ctl.sh add|remove
  * (без constructor API создателя).
+ * Навигация: [Мои боты](./README.md) ← [routes/bots](../telegram/routes/bots.mjs).
  */
 import fs from 'node:fs/promises';
 import os from 'node:os';

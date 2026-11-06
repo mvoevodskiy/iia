@@ -2,16 +2,12 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { DEFAULT_PROVIDER, isProviderId } from './providers.mjs';
+import { botDir } from './paths.mjs';
 
 const STORE_NAME = 'ext-providers.json';
 
-function botId(env = process.env) {
-  const id = (env.MSB_BOT_ID || 'default').trim();
-  return /^[a-zA-Z0-9_-]{1,32}$/.test(id) ? id : 'default';
-}
-
-export function storePath(env = process.env, home = os.homedir()) {
-  return path.join(home, '.msb', 'bots', botId(env), STORE_NAME);
+export function storePath(env = process.env, home = env.HOME || os.homedir()) {
+  return path.join(botDir(env, home), STORE_NAME);
 }
 
 function emptyStore() {
@@ -25,7 +21,7 @@ function emptyStore() {
   };
 }
 
-export async function loadStore(env = process.env, home = os.homedir()) {
+export async function loadStore(env = process.env, home = env.HOME || os.homedir()) {
   const file = storePath(env, home);
   try {
     const raw = await fs.readFile(file, 'utf8');
@@ -46,7 +42,7 @@ export async function loadStore(env = process.env, home = os.homedir()) {
   }
 }
 
-export async function saveStore(store, env = process.env, home = os.homedir()) {
+export async function saveStore(store, env = process.env, home = env.HOME || os.homedir()) {
   const file = storePath(env, home);
   await fs.mkdir(path.dirname(file), { recursive: true });
   const next = {
@@ -63,14 +59,14 @@ export async function saveStore(store, env = process.env, home = os.homedir()) {
   return next;
 }
 
-export async function setActive(providerId, env = process.env, home = os.homedir()) {
+export async function setActive(providerId, env = process.env, home = env.HOME || os.homedir()) {
   if (!isProviderId(providerId)) throw new Error(`unknown provider: ${providerId}`);
   const store = await loadStore(env, home);
   store.active = providerId;
   return saveStore(store, env, home);
 }
 
-export async function setSession(providerId, sessionId, env = process.env, home = os.homedir()) {
+export async function setSession(providerId, sessionId, env = process.env, home = env.HOME || os.homedir()) {
   if (!isProviderId(providerId)) throw new Error(`unknown provider: ${providerId}`);
   const store = await loadStore(env, home);
   if (!sessionId) delete store.sessions[providerId];
@@ -78,13 +74,13 @@ export async function setSession(providerId, sessionId, env = process.env, home 
   return saveStore(store, env, home);
 }
 
-export async function getSelectedModel(providerId, env = process.env, home = os.homedir()) {
+export async function getSelectedModel(providerId, env = process.env, home = env.HOME || os.homedir()) {
   const store = await loadStore(env, home);
   const id = store.models?.[providerId];
   return typeof id === 'string' && id.trim() ? id.trim() : null;
 }
 
-export async function setSelectedModel(providerId, modelId, env = process.env, home = os.homedir()) {
+export async function setSelectedModel(providerId, modelId, env = process.env, home = env.HOME || os.homedir()) {
   if (!isProviderId(providerId)) throw new Error(`unknown provider: ${providerId}`);
   const store = await loadStore(env, home);
   if (!store.models || typeof store.models !== 'object') store.models = {};
@@ -93,13 +89,13 @@ export async function setSelectedModel(providerId, modelId, env = process.env, h
   return saveStore(store, env, home);
 }
 
-export async function getSelectedEffort(providerId, env = process.env, home = os.homedir()) {
+export async function getSelectedEffort(providerId, env = process.env, home = env.HOME || os.homedir()) {
   const store = await loadStore(env, home);
   const id = store.efforts?.[providerId];
   return typeof id === 'string' && id.trim() ? id.trim() : null;
 }
 
-export async function setSelectedEffort(providerId, effort, env = process.env, home = os.homedir()) {
+export async function setSelectedEffort(providerId, effort, env = process.env, home = env.HOME || os.homedir()) {
   if (!isProviderId(providerId)) throw new Error(`unknown provider: ${providerId}`);
   const store = await loadStore(env, home);
   if (!store.efforts || typeof store.efforts !== 'object') store.efforts = {};

@@ -1,4 +1,5 @@
 import { botId, homeDir, msbRoot, workspaceDir } from './paths.mjs';
+import profile from '../shared/profile.cjs';
 
 export function readConfig(env = process.env) {
   const adminId = Number(env.ADMIN_ID || env.OWNER_USER_ID || '0');
@@ -9,7 +10,7 @@ export function readConfig(env = process.env) {
     home: homeDir(env),
     msbRoot: msbRoot(env),
     workspace: workspaceDir(env),
-    timezone: env.MSB_TIMEZONE || 'Europe/Moscow',
+    timezone: profile.envValue(env, 'MSB_TIMEZONE') || 'Europe/Moscow',
     version: env.BOT_VERSION || 'open-0.1.0',
     openCore: true,
   };

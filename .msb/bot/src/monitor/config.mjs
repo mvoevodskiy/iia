@@ -1,9 +1,10 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
+import { msbRoot } from '../paths.mjs';
 
 export function monitorDir(env = process.env) {
-  return path.join(env.HOME || os.homedir(), '.msb', 'monitor');
+  return path.join(msbRoot(env), 'monitor');
 }
 
 function configPath(env = process.env) {

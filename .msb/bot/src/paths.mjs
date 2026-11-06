@@ -1,18 +1,18 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import profile from '../shared/profile.cjs';
 
 export function homeDir(env = process.env) {
   return env.HOME || os.homedir();
 }
 
 export function botId(env = process.env) {
-  const id = (env.MSB_BOT_ID || 'default').trim();
-  return /^[a-zA-Z0-9_-]{1,32}$/.test(id) ? id : 'default';
+  return profile.botId(env);
 }
 
 export function msbRoot(env = process.env) {
-  return path.join(homeDir(env), '.msb');
+  return profile.resolveProfile(env).root;
 }
 
 export function botRoot(env = process.env) {
@@ -24,11 +24,12 @@ export function statePath(env = process.env) {
 }
 
 export function sessionDir(env = process.env) {
-  return env.MSB_SESSION_DIR || path.join(botRoot(env), 'sessions');
+  return profile.envValue(env, 'MSB_SESSION_DIR') || path.join(botRoot(env), 'sessions');
 }
 
 export function workspaceDir(env = process.env) {
-  if (env.MSB_WORKSPACE_DIR) return env.MSB_WORKSPACE_DIR;
+  const workspace = profile.envValue(env, 'MSB_WORKSPACE_DIR');
+  if (workspace) return workspace;
   // cwd is bind-mount of workspace in production
   return process.cwd();
 }

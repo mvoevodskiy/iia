@@ -1,5 +1,6 @@
 import { loadMonitorConfig, saveMonitorConfig } from './config.mjs';
 import { listRecentItems, loadMeta, saveMeta } from './store.mjs';
+import { loadState } from '../state.mjs';
 
 export async function buildDigestText(env = process.env) {
   const cfg = await loadMonitorConfig(env);
@@ -25,7 +26,8 @@ export async function maybeSendDigest({ api, adminId, force = false, env = proce
   if (!cfg.digest?.enabled && !force) return { sent: false, reason: 'disabled' };
 
   const hour = cfg.digest?.hour ?? 9;
-  const tz = env.MSB_TIMEZONE || 'Europe/Moscow';
+  const { state } = await loadState(env);
+  const tz = state.timezone || env.MSB_TIMEZONE || 'Europe/Moscow';
   const nowHour = hourInTz(tz);
   const meta = await loadMeta(env);
   const day = new Date().toISOString().slice(0, 10);

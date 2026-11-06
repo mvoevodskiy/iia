@@ -1,0 +1,71 @@
+/**
+ * Возможности workspace: проекты, навыки и MCP.
+ * Навигация: [Telegram](../README.md).
+ */
+import { InlineKeyboard } from 'grammy';
+import { BLANK } from './shared.mjs';
+
+export function mcpScreen() {
+  return {
+    text: `🔌 <b>MCP серверы</b>
+
+Внешние сервисы — транскрипты, скрейпинг, базы данных и другие инструменты.
+${BLANK}`,
+    keyboard: new InlineKeyboard()
+      .text('📁 workspace', 'mcp:folder:workspace')
+      .row()
+      .text('« Назад', 'menu:back'),
+  };
+}
+
+export function mcpWorkspaceScreen() {
+  return {
+    text: `<b>📁 workspace</b>
+
+Доступны агенту во всех проектах.
+
+<i>Список native MCP пока не читается этим экраном.</i>
+${BLANK}`,
+    keyboard: new InlineKeyboard()
+      .text('➕ Добавить', 'mcp:add')
+      .row()
+      .text('« Назад', 'menu:mcp'),
+  };
+}
+
+export function mcpAddScreen() {
+  return {
+    text: `<b>➕ MCP сервер</b>
+
+Прежние пункты настройки. Их установка в open-core пока не подключена.
+${BLANK}`,
+    keyboard: new InlineKeyboard()
+      .text('Supadata', 'mcp:setup:supadata')
+      .text('Apify', 'mcp:setup:apify')
+      .row()
+      .text('« Назад', 'mcp:folder:workspace'),
+  };
+}
+
+export function skillsScreen() {
+  return {
+    text: `<b>🧩 Навыки</b>
+
+Список навыков выбранного CLI пока не читается этим экраном.
+${BLANK}`,
+    keyboard: new InlineKeyboard().text('« Назад', 'menu:back'),
+  };
+}
+
+export function projectsScreen() {
+  return {
+    text: `<b>📁 Проекты</b>
+
+Проекты живут в <code>~/projects/</code>. Кнопка создаёт папку и сохраняет выбранный проект. Переключение cwd в open-core пока не подключено.
+${BLANK}`,
+    keyboard: new InlineKeyboard()
+      .text('➕ Новый проект', 'menu:newproject')
+      .row()
+      .text('« Назад', 'menu:back'),
+  };
+}

@@ -1,3 +1,4 @@
+import profile from '../shared/profile.cjs';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -28,6 +29,7 @@ const EFFORT_LABELS = {
   medium: 'medium',
   high: 'high',
   xhigh: 'xhigh',
+  max: 'max',
 };
 
 function esc(s) {
@@ -53,23 +55,7 @@ async function readBotState(env = process.env, home = os.homedir()) {
   }
 }
 
-export async function writeBotPermissionMode(mode, env = process.env, home = os.homedir()) {
-  const file = botStatePath(env, home);
-  let state = {};
-  try {
-    state = JSON.parse(await fs.readFile(file, 'utf8'));
-  } catch (err) {
-    if (err?.code !== 'ENOENT') throw err;
-  }
-  state.permissionMode = mode;
-  // Смена режима — новая беседа у CLI-канала.
-  if (state.ccSessionId) delete state.ccSessionId;
-  await fs.mkdir(path.dirname(file), { recursive: true });
-  const tmp = `${file}.tmp.${process.pid}`;
-  await fs.writeFile(tmp, `${JSON.stringify(state, null, 2)}\n`, { mode: 0o600 });
-  await fs.rename(tmp, file);
-  return state;
-}
+export { writeBotPermissionMode } from './integration/actions.mjs';
 
 async function currentModelId(providerId, store, env, home) {
   return resolveDisplayedModel(providerId, store.models?.[providerId], env, home);
@@ -94,15 +80,14 @@ export async function buildConnMenu(env = process.env, home) {
   const configured = await configuredMap(env, home);
   const active = getProvider(store.active) || PROVIDERS[0];
   const state = await readBotState(env, home);
-  const engine = state?.engine === 'oc' ? 'OpenClaw' : 'Claude Code';
+  const engine = state?.engine === 'oc' ? 'OpenClaw' : active.title;
 
   const lines = [
     '<b>🔌 Подключение</b>',
     '',
-    `CLI-канал обвязки: <b>${esc(active.icon)} ${esc(active.title)}</b>.`,
-    `Штатный движок бандла: <b>${esc(engine)}</b>.`,
+    `Сейчас отвечает: <b>${esc(engine)}</b>.`,
     '',
-    'Ниже — штатные варианты бандла (Claude / OpenRouter / OpenClaw) и дополнительно CLI-провайдеры обвязки.',
+    'Выбери подключение или настрой авторизацию ниже.',
     'Cursor/Qwen — ключ в .env; Codex — ChatGPT login в ~/.codex (без секрета в Telegram).',
     '',
     'Память и файлы общие; смена канала начинает новую сессию чата.',
@@ -139,7 +124,7 @@ export async function buildConnMenu(env = process.env, home) {
       btn(providerButtonLabel(p, { active: isActive, configured: has }), `ext:conn:set:${p.id}`),
     ];
     if (p.authViaNative) {
-      row.push(btn(has ? '🔑 Перелогин' : '🔑 Войти', `ext:auth:${p.id}`));
+      row.push(btn('🔐 Вход', `ext:auth:${p.id}`));
     } else {
       row.push(btn(has ? '🔑 Новый ключ' : '🔑 Ключ', `ext:auth:${p.id}`));
     }
@@ -268,7 +253,7 @@ export async function buildAgentMenu(env = process.env, home = os.homedir(), not
   const effortId = providerSupportsEffort(providerId)
     ? await currentEffortId(providerId, env, home)
     : null;
-  const perm = PERM_LABELS[state.permissionMode] || PERM_LABELS.auto;
+  const perm = providerId === 'codex' ? 'полный доступ, без подтверждений' : PERM_LABELS[state.permissionMode] || PERM_LABELS.auto;
 
   const lines = [];
   if (notice) lines.push(notice, '');
@@ -334,6 +319,7 @@ export async function buildEffortMenu(env = process.env, home = os.homedir()) {
     { id: 'medium', desc: 'обычная глубина' },
     { id: 'high', desc: 'углублённо' },
     { id: 'xhigh', desc: 'глубже, для кода и сложных задач' },
+    { id: 'max', desc: 'максимальная глубина' },
   ];
 
   const lines = [
@@ -387,7 +373,8 @@ export async function buildPermModeMenu(env = process.env, home = os.homedir()) 
     '',
     ...modes.map((m) => `<b>${esc(m.label)}</b>: ${esc(m.desc)}`),
     '',
-    `<b>Сейчас:</b> ${esc(PERM_LABELS[current] || current)}`,
+    `<b>${providerId === 'codex' ? 'Сохранённая настройка' : 'Сейчас'}:</b> ${esc(PERM_LABELS[current] || current)}`,
+    ...(providerId === 'codex' ? ['', 'Фактические права Codex: полный доступ, без подтверждений. Эта настройка интерфейса их не меняет.'] : []),
   ];
 
   const rows = modes.map((m) => [
@@ -410,11 +397,11 @@ export async function buildLocalSshMenu(env = process.env) {
     'Если бот во внутренней сети и :22 снаружи не проброшен — эти экраны падают.',
     '',
     host
-      ? `Сейчас локальный адрес: <code>${esc(host)}</code>\nОперации /api/ssh и список ботов идут <b>на этой машине</b>, без SSH с хаба.`
+      ? `Сейчас локальный адрес: <code>${esc(host)}</code>\nСтатус SSH читается <b>на этой машине</b>, без подключения с хаба.`
       : 'Сейчас не задан — используется только конструктор (внешний IP).',
     '',
-    'Укажи IPv4/hostname этой машины в LAN (например <code>192.168.1.10</code> или <code>127.0.0.1</code>).',
-    'Переменная: <code>MSB_LOCAL_SSH_HOST</code> (её же можно задать в «🔑 Переменные окружения»).',
+    `Укажи IPv4/hostname этой машины в LAN (например <code>${profile.resolveProfile(env).lanExample}</code> или <code>127.0.0.1</code>).`,
+    `Переменная: <code>${profile.profileEnvKey('MSB_LOCAL_SSH_HOST', env)}</code> (её же можно задать в «🔑 Переменные окружения»).`,
   ];
   const rows = [[btn(host ? '✏️ Изменить' : '➕ Указать IP', 'ext:ssh:local:edit')]];
   if (host) rows.push([btn('🗑 Сбросить', 'ext:ssh:local:clear')]);
@@ -422,13 +409,13 @@ export async function buildLocalSshMenu(env = process.env) {
   return { text: lines.join('\n'), keyboard: keyboard(rows) };
 }
 
-export function localSshPrompt() {
+export function localSshPrompt(env = process.env) {
   return {
     text:
       '<b>🖧 Локальный SSH IP</b>\n\n' +
       'Пришли IPv4 или hostname одной строкой.\n' +
-      'Примеры: <code>192.168.1.10</code>, <code>127.0.0.1</code>\n\n' +
-      'После сохранения список ботов и SSH-ключи работают локально.',
+      `Примеры: <code>${profile.resolveProfile(env).lanExample}</code>, <code>127.0.0.1</code>\n\n` +
+      'После сохранения статус SSH читается локально. Управление ключами и firewall в этом меню пока недоступно.',
     keyboard: keyboard([[btn('✖️ Отмена', 'ext:ssh:local')]]),
   };
 }

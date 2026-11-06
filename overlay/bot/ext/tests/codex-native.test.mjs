@@ -142,3 +142,9 @@ test('buildCodexExecArgs sets full access + never approvals + model/effort + htt
   assert.equal(args[resumeAt + 1], '0199a213-81c0-7800-8aa1-bbab2a035a53');
   assert.equal(args.at(-1), '-');
 });
+
+test('native root config ignores profile and provider table scalars', () => {
+  const s = parseCodexTomlScalars('model = "gpt-6.1-terra"\nmodel_reasoning_effort = "max"\n[profiles.test]\nmodel = "other"\nmodel_reasoning_effort = "low"\n');
+  assert.equal(s.model, 'gpt-6.1-terra');
+  assert.equal(s.model_reasoning_effort, 'max');
+});

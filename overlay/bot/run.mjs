@@ -1,10 +1,8 @@
 #!/usr/bin/env node
+import './shared/preload.mjs';
 /**
- * Точка входа бота с расширением провайдеров (Cursor / Codex / Qwen).
- * Бандл index.js не меняем: PATH-shim + патч Bot.prototype до загрузки.
- *
- * systemd: ExecStart=/usr/bin/node /home/client/.msb/bot/run.mjs
- * (drop-in: bot/systemd/60-ext-entry.conf)
+ * Вход overlay: shared profile → PATH-shim → integration prepare → установленный index.js.
+ * Навигация: [Обвязка](./ext/README.md), [prepare](./ext/install.mjs).
  */
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';

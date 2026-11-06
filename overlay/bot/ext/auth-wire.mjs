@@ -107,10 +107,7 @@ export async function wireCodexAuth({ accessToken, apiKey }, env = process.env, 
  * Не читает и не возвращает значения секретов.
  */
 export async function codexLoginStatus(env = process.env, home = os.homedir()) {
-  if (await hasNativeCodexAuth(home)) {
-    return { ok: true, mode: 'native-auth.json' };
-  }
-  const childEnv = { ...env, PATH: enrichPath(env, home) };
+  const childEnv = { ...env, HOME: home, PATH: enrichPath(env, home) };
   const bin = findBin('codex', childEnv);
   if (!bin) return { ok: false, error: 'codex CLI ещё не установлен' };
   const res = await new Promise((resolve) => {
@@ -118,6 +115,7 @@ export async function codexLoginStatus(env = process.env, home = os.homedir()) {
       env: childEnv,
       stdio: ['ignore', 'pipe', 'pipe'],
     });
+    const timer = setTimeout(() => child.kill('SIGTERM'), 10000);
     let out = '';
     child.stdout.setEncoding('utf8');
     child.stderr.setEncoding('utf8');
@@ -127,8 +125,8 @@ export async function codexLoginStatus(env = process.env, home = os.homedir()) {
     child.stderr.on('data', (c) => {
       out += c;
     });
-    child.on('error', (err) => resolve({ code: 1, out: err.message }));
-    child.on('close', (code) => resolve({ code: code ?? 1, out }));
+    child.on('error', (err) => { clearTimeout(timer); resolve({ code: 1, out: err.message }); });
+    child.on('close', (code) => { clearTimeout(timer); resolve({ code: code ?? 1, out }); });
   });
   const text = (res.out || '').trim();
   const loggedIn = /logged in/i.test(text) && !/not logged|logged out/i.test(text);
@@ -204,7 +202,10 @@ export async function waitCodexNativeAuth({
 } = {}) {
   const started = Date.now();
   while (Date.now() - started < timeoutMs) {
-    if (await hasNativeCodexAuth(home)) return { ok: true };
+    if (await hasNativeCodexAuth(home)) {
+      const status = await codexLoginStatus(process.env, home);
+      if (status.ok) return status;
+    }
     await new Promise((r) => setTimeout(r, pollMs));
   }
   return { ok: false, error: 'таймаут ожидания входа Codex' };

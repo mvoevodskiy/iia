@@ -9,6 +9,7 @@ const TICK_MS = 60_000;
 
 /**
  * Упрощённый планировщик фоновых задач (аналог [msb/scheduler]).
+ * Навигация: [Автономка](./README.md) → [общий ход](../agent/turn.mjs).
  */
 export function startScheduler({ api, adminId, log = console.error } = {}) {
   let stopped = false;
@@ -59,7 +60,7 @@ async function runTask(task, api, adminId, log) {
 
   const result = await runAgentTurn({
     prompt: [
-      'Ты выполняешь фоновую задачу владельца. Это отдельная сессия без истории чата.',
+      'Ты выполняешь фоновую задачу владельца в общей с чатом сессии.',
       'Сделай ровно то, что в задании. В конце — короткий итог.',
       '',
       `Задание:\n${task.prompt}`,

@@ -52,6 +52,7 @@ echo "[overlay] → $BOT_DST"
 
 run mkdir -p "$BOT_DST/systemd"
 run rsync -a --delete "$SOURCE/overlay/bot/ext/" "$BOT_DST/ext/"
+run rsync -aL --delete "$SOURCE/overlay/bot/shared/" "$BOT_DST/shared/"
 run install -m 0755 "$SOURCE/overlay/bot/run.mjs" "$BOT_DST/run.mjs"
 run install -m 0644 "$SOURCE/overlay/bot/systemd/60-ext-entry.conf" "$BOT_DST/systemd/60-ext-entry.conf"
 run install -m 0644 "$SOURCE/overlay/bot/package.json" "$BOT_DST/package.json"
@@ -69,7 +70,7 @@ if [[ "$DRY_RUN" != "1" ]]; then
   if [[ "$TARGET" != "/home/client" ]]; then
     sed -i "s|/home/client|$TARGET|g" "$DROP_DIR/60-ext-entry.conf"
   fi
-  chown -R client:client "$BOT_DST/ext" "$BOT_DST/run.mjs" "$BOT_DST/systemd" "$BOT_DST/package.json" 2>/dev/null || true
+  chown -R client:client "$BOT_DST/ext" "$BOT_DST/shared" "$BOT_DST/run.mjs" "$BOT_DST/systemd" "$BOT_DST/package.json" 2>/dev/null || true
   systemctl daemon-reload
   if [[ "$SKIP_RESTART" != "1" ]] && command -v bot-ctl.sh >/dev/null; then
     bot-ctl.sh restart all || bot-ctl.sh restart default || true

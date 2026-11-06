@@ -5,12 +5,14 @@ import os from 'node:os';
 import crypto from 'node:crypto';
 import { detectCoreVersion, readUpdatesState, writeUpdatesState } from './core-id.mjs';
 import { isCoreCompatible } from './compat.mjs';
+import { msbRoot } from '../paths.mjs';
+import profile from '../../shared/profile.cjs';
 
 function cfg(env = process.env) {
   return {
-    url: (env.MSB_UPDATES_URL || '').replace(/\/$/, ''),
-    token: env.MSB_UPDATES_TOKEN || '',
-    auto: env.MSB_UPDATES_AUTO === '1',
+    url: (profile.envValue(env, 'MSB_UPDATES_URL') || '').replace(/\/$/, ''),
+    token: profile.envValue(env, 'MSB_UPDATES_TOKEN') || '',
+    auto: profile.envValue(env, 'MSB_UPDATES_AUTO') === '1',
   };
 }
 
@@ -32,10 +34,10 @@ async function downloadBlob(c, sha256) {
   return Buffer.from(await res.arrayBuffer());
 }
 
-export async function check(env = process.env, home = os.homedir()) {
+export async function check(env = process.env, home = env.HOME || os.homedir()) {
   const c = cfg(env);
-  const core = await detectCoreVersion(home);
-  const state = await readUpdatesState(home);
+  const core = await detectCoreVersion(home, env);
+  const state = await readUpdatesState(home, env);
   const latestExt = await api(c, '/v1/channels/ext/latest');
   const compatible = core
     ? (await api(c, `/v1/channels/ext/compatible?core=${encodeURIComponent(core)}`)).release
@@ -49,15 +51,15 @@ export async function check(env = process.env, home = os.homedir()) {
   };
 }
 
-export async function applyExt(env = process.env, home = os.homedir()) {
+export async function applyExt(env = process.env, home = env.HOME || os.homedir()) {
   const c = cfg(env);
-  const core = await detectCoreVersion(home);
+  const core = await detectCoreVersion(home, env);
   const { release } = await api(c, `/v1/channels/ext/compatible?core=${encodeURIComponent(core || '')}`);
   if (!release) throw new Error('no compatible ext');
   if (!isCoreCompatible(core, release.compatible_core) && core && !String(core).startsWith('sha256:')) {
     throw new Error('ext not compatible with core');
   }
-  const live = path.join(home, '.msb');
+  const live = msbRoot(home, env);
   for (const f of release.files) {
     if (f.path.includes('..')) throw new Error('bad path');
     const buf = await downloadBlob(c, f.sha256);
@@ -67,7 +69,7 @@ export async function applyExt(env = process.env, home = os.homedir()) {
     await fsp.mkdir(path.dirname(dest), { recursive: true });
     await fsp.writeFile(dest, buf, { mode: parseInt(f.mode || '644', 8) });
   }
-  await writeUpdatesState({ applied_ext_version: release.version, applied_core_version: core }, home);
+  await writeUpdatesState({ applied_ext_version: release.version, applied_core_version: core }, home, env);
   return { ok: true, version: release.version };
 }
 

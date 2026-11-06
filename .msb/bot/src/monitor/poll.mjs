@@ -1,5 +1,6 @@
 /**
  * Сбор источников мониторинга (RSS / YouTube RSS / GitHub Atom / TG public / X).
+ * Навигация: [Мониторинг](./README.md) → [storage](./store.mjs), [digest](./digest.mjs).
  */
 import { loadMonitorConfig, saveMonitorConfig } from './config.mjs';
 import { appendItems, itemId, loadMeta, saveMeta } from './store.mjs';

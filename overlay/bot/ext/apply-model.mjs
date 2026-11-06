@@ -16,6 +16,9 @@ export async function upsertTomlScalar(file, key, value) {
   } catch (err) {
     if (err?.code !== 'ENOENT') throw err;
   }
+  const tableAt = text.search(/^\s*\[/m);
+  const tail = tableAt < 0 ? '' : text.slice(tableAt);
+  text = tableAt < 0 ? text : text.slice(0, tableAt);
   const line = `${key} = ${JSON.stringify(value)}`;
   const re = new RegExp(`^${key}\\s*=\\s*.*$`, 'm');
   if (re.test(text)) text = text.replace(re, line);
@@ -25,7 +28,7 @@ export async function upsertTomlScalar(file, key, value) {
   }
   await fs.mkdir(path.dirname(file), { recursive: true });
   const tmp = `${file}.tmp.${process.pid}`;
-  await fs.writeFile(tmp, text, { mode: 0o600 });
+  await fs.writeFile(tmp, text + tail, { mode: 0o600 });
   await fs.rename(tmp, file);
 }
 
@@ -71,7 +74,7 @@ export async function applyProviderModel(providerId, modelId, env = process.env,
   return { ok: true };
 }
 
-const CODEX_EFFORTS = new Set(['low', 'medium', 'high', 'xhigh']);
+const CODEX_EFFORTS = new Set(['low', 'medium', 'high', 'xhigh', 'max']);
 
 /**
  * @returns {Promise<{ok:boolean, error?:string}>}

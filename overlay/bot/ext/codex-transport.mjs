@@ -9,14 +9,12 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { codexAuthPath, codexConfigPath, parseCodexTomlScalars } from './codex-native.mjs';
+import profile from '../shared/profile.cjs';
 
 export const MSB_HTTP_PROVIDER_ID = 'msb_http';
 
 const CHATGPT_BASE = 'https://chatgpt.com/backend-api/codex';
 const API_BASE = 'https://api.openai.com/v1';
-
-const MARK_BEGIN = '# BEGIN msb-ext codex-http';
-const MARK_END = '# END msb-ext codex-http';
 
 async function detectAuthMode(home) {
   try {
@@ -31,20 +29,21 @@ async function detectAuthMode(home) {
   return 'chatgpt';
 }
 
-function providerBlock(baseUrl) {
+function providerBlock(baseUrl, providerId) {
+  const namespace = providerId === 'iia_http' ? 'iia' : 'msb';
   return [
-    MARK_BEGIN,
+    `# BEGIN ${namespace}-ext codex-http`,
     `# HTTP-only: без Responses WebSocket (см. openai/codex#20739, #22634)`,
-    `model_provider = "${MSB_HTTP_PROVIDER_ID}"`,
+    `model_provider = "${providerId}"`,
     'stream_idle_timeout_ms = 600000',
     '',
-    `[model_providers.${MSB_HTTP_PROVIDER_ID}]`,
-    'name = "MSB HTTP (no websocket)"',
+    `[model_providers.${providerId}]`,
+    `name = "${namespace.toUpperCase()} HTTP (no websocket)"`,
     `base_url = ${JSON.stringify(baseUrl)}`,
     'wire_api = "responses"',
     'requires_openai_auth = true',
     'supports_websockets = false',
-    MARK_END,
+    `# END ${namespace}-ext codex-http`,
     '',
   ].join('\n');
 }
@@ -54,11 +53,11 @@ function providerBlock(baseUrl) {
  * Не затирает чужие секции; свой блок между маркерами заменяет целиком.
  * @returns {Promise<{ok:boolean, providerId:string, baseUrl:string, changed:boolean}>}
  */
-export async function ensureCodexStableTransport(home = os.homedir()) {
+export async function ensureCodexStableTransport(home, env = process.env) {
+  home ??= env.HOME || os.homedir();
   const file = codexConfigPath(home);
   const authMode = await detectAuthMode(home);
   const baseUrl = authMode === 'api' ? API_BASE : CHATGPT_BASE;
-  const block = providerBlock(baseUrl);
 
   let text = '';
   try {
@@ -69,16 +68,23 @@ export async function ensureCodexStableTransport(home = os.homedir()) {
 
   const scalars = parseCodexTomlScalars(text);
   const currentProvider = scalars.model_provider || 'openai';
+  // Existing native provider identity is part of the session/config contract.
+  const providerId = ['iia_http', MSB_HTTP_PROVIDER_ID].includes(currentProvider)
+    ? currentProvider : profile.resolveProfile(env, home).codexHttpProviderId;
+  const namespace = providerId === 'iia_http' ? 'iia' : 'msb';
+  const markBegin = `# BEGIN ${namespace}-ext codex-http`;
+  const markEnd = `# END ${namespace}-ext codex-http`;
+  const block = providerBlock(baseUrl, providerId);
   // Не перехватываем ollama/lmstudio/custom — только дефолтный openai и наш msb_http.
   const managed =
     !currentProvider ||
-    ['openai', MSB_HTTP_PROVIDER_ID, 'chatgpt', 'chatgpt-http', 'openai_http'].includes(currentProvider);
+    ['openai', 'iia_http', MSB_HTTP_PROVIDER_ID, 'chatgpt', 'chatgpt-http', 'openai_http'].includes(currentProvider);
 
   let next = text;
-  const begin = next.indexOf(MARK_BEGIN);
-  const end = next.indexOf(MARK_END);
+  const begin = next.indexOf(markBegin);
+  const end = next.indexOf(markEnd);
   if (begin >= 0 && end > begin) {
-    const after = end + MARK_END.length;
+    const after = end + markEnd.length;
     next = `${next.slice(0, begin).trimEnd()}\n\n${block}${next.slice(after).replace(/^\n+/, '')}`;
   } else if (managed) {
     // Уберём одиночный model_provider = "openai", если был — блок задаст свой.
@@ -112,7 +118,7 @@ export async function ensureCodexStableTransport(home = os.homedir()) {
 
   return {
     ok: true,
-    providerId: managed ? MSB_HTTP_PROVIDER_ID : currentProvider,
+    providerId: managed ? providerId : currentProvider,
     baseUrl: managed ? baseUrl : null,
     changed,
     skippedProviderSwitch: !managed,
@@ -120,7 +126,7 @@ export async function ensureCodexStableTransport(home = os.homedir()) {
 }
 
 /** CLI `-c` для хода бота: принудительно HTTP-only, если блок msb_http на месте. */
-export function codexHttpProviderOverrides(force = true) {
+export function codexHttpProviderOverrides(force = true, providerId = profile.resolveProfile().codexHttpProviderId) {
   if (!force) return [];
-  return ['-c', `model_provider=${JSON.stringify(MSB_HTTP_PROVIDER_ID)}`];
+  return ['-c', `model_provider=${JSON.stringify(providerId)}`];
 }

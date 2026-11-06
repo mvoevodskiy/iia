@@ -1,4 +1,9 @@
+/**
+ * Codex exec/resume и разбор ответа; transport error не запускает повтор в новом thread.
+ * Навигация: [CLI-провайдеры](../README.md#исполнение-cli) → [native config](../codex-native.mjs).
+ */
 import os from 'node:os';
+import profile from '../../shared/profile.cjs';
 import { findBin, runCli } from './run-cli.mjs';
 import { readEnvKey } from '../env.mjs';
 import { decodeExtSession, getSelectedModel, getSelectedEffort } from '../store.mjs';
@@ -74,7 +79,7 @@ export function parseCodexStdout(stdout) {
   };
 }
 
-export function buildCodexExecArgs({ model, effort, resumeId, forceHttp = true }) {
+export function buildCodexExecArgs({ model, effort, resumeId, forceHttp = true, httpProviderId }) {
   const args = [
     'exec',
     '--json',
@@ -83,7 +88,7 @@ export function buildCodexExecArgs({ model, effort, resumeId, forceHttp = true }
     '--skip-git-repo-check',
     '-c',
     'approval_policy="never"',
-    ...codexHttpProviderOverrides(forceHttp),
+    ...codexHttpProviderOverrides(forceHttp, httpProviderId),
   ];
   if (model) {
     args.push('-m', model);
@@ -137,8 +142,9 @@ async function execOnce({
   effort,
   resumeId,
   forceHttp,
+  httpProviderId,
 }) {
-  const args = buildCodexExecArgs({ model, effort, resumeId, forceHttp });
+  const args = buildCodexExecArgs({ model, effort, resumeId, forceHttp, httpProviderId });
   const res = await runCli(bin, args, {
     cwd,
     env: childEnv,
@@ -164,7 +170,7 @@ async function execOnce({
   return { res, parsedOut, model };
 }
 
-function finalizeParsed({ res, parsedOut, model, resumeRequested }) {
+export function finalizeParsed({ res, parsedOut, model, resumeRequested }) {
   if (parsedOut.turnFailed) {
     const raw = String(parsedOut.turnFailed);
     const streamCut = parsedOut.streamCut || isCodexStreamCutMessage(raw);
@@ -190,10 +196,9 @@ function finalizeParsed({ res, parsedOut, model, resumeRequested }) {
         model: model || undefined,
       };
     }
+    threadId = resumeRequested;
   } else if (resumeRequested && threadId && threadId !== resumeRequested) {
-    console.error(
-      `[msb/ext/codex] resume thread changed ${resumeRequested} → ${threadId} (accept if turn ok)`,
-    );
+    return { ok: false, text: 'Codex вернул другую сессию. Исходная беседа сохранена.', model };
   }
 
   const ok =
@@ -251,8 +256,12 @@ export async function runCodexTurn({ prompt, parsed, cwd, env, home = os.homedir
   }
 
   // HTTP-only provider — до первого хода, иначе 5× reconnect на WS.
+  let httpProviderId = profile.resolveProfile(env, home).codexHttpProviderId;
+  let forceHttp = true;
   try {
-    const tr = await ensureCodexStableTransport(home);
+    const tr = await ensureCodexStableTransport(home, env);
+    httpProviderId = tr.providerId;
+    forceHttp = !tr.skippedProviderSwitch;
     if (tr.changed) {
       console.error(
         `[msb/ext/codex] transport → ${tr.providerId}${tr.baseUrl ? ` (${tr.baseUrl})` : ''}`,
@@ -283,28 +292,12 @@ export async function runCodexTurn({ prompt, parsed, cwd, env, home = os.homedir
       model,
       effort,
       resumeId,
-      forceHttp: true,
+      forceHttp,
+      httpProviderId,
     });
 
-  let raw = await run(resumeRequested);
-  if (raw.ok === false) return raw; // timedOut / early fail
-  let result = finalizeParsed({ ...raw, resumeRequested });
-
-  // Один автоматический повтор после обрыва WS: новый тред, уже на HTTP provider.
-  if (!result.ok && result.streamCut) {
-    console.error('[msb/ext/codex] stream cut → retry once without resume');
-    try {
-      await ensureCodexStableTransport(home);
-    } catch {
-      /* ignore */
-    }
-    raw = await run(null);
-    if (raw.ok === false) return raw;
-    result = finalizeParsed({ ...raw, resumeRequested: null });
-    if (result.ok) {
-      result.text = `${result.text}\n\n_(повтор после обрыва websocket)_`;
-    }
-  }
-
-  return result;
+  const raw = await run(resumeRequested);
+  if (raw.ok === false) return raw;
+  // Never replay a tool-capable request in a fresh thread after a transport error.
+  return finalizeParsed({ ...raw, resumeRequested });
 }

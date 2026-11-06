@@ -1,6 +1,9 @@
 #!/usr/bin/env node
+import './shared/preload.mjs';
 /**
- * Точка входа MSB — открытое ядро (src/main.mjs).
+ * Точка входа MSB — открытое ядро после shared profile preload → src/main.mjs.
+ * Навигация: [Ядро](./OPEN-CORE.md), [main](./src/main.mjs).
+ * Закрытый бандл снят; откат выпуска восстанавливает предыдущий код из release backup.
  */
 import { pathToFileURL } from 'node:url';
 import path from 'node:path';

@@ -8,9 +8,11 @@ import {
 } from '../state.mjs';
 import { runClaudeTurn } from './claude.mjs';
 import { buildSystemPrompt } from './system-prompt.mjs';
+import { readSessionContext } from './context.mjs';
 
 /**
  * Один ход агента для чата или автономии.
+ * Навигация: [Исполнение](./README.md) → [runner](./claude.mjs), [context](./context.mjs).
  */
 export async function runAgentTurn({
   prompt,
@@ -19,6 +21,8 @@ export async function runAgentTurn({
   autonomy = false,
   env = process.env,
 } = {}) {
+  const aborted = () => ({ ok: false, error: 'aborted', text: 'Остановлено.' });
+  if (signal?.aborted) return aborted();
   const { state } = await loadState(env);
   if (!hasClaudeAuth(env, state)) {
     return {
@@ -41,6 +45,8 @@ export async function runAgentTurn({
   const permissionMode = resolvePermMode(state);
   const systemPrompt = await buildSystemPrompt();
 
+  if (signal?.aborted) return aborted();
+
   let lastTool = '';
   const result = await runClaudeTurn({
     prompt,
@@ -56,7 +62,7 @@ export async function runAgentTurn({
         for (const part of ev.message?.content || []) {
           if (part.type === 'tool_use' && part.name) {
             lastTool = part.name;
-            onStatus?.({ kind: 'tool', name: part.name, input: summarizeInput(part.input) });
+            onStatus?.({ kind: 'tool', name: part.name, input: summarizeInput(part.input), rawInput: part.input });
           } else if (part.type === 'text' && part.text) {
             onStatus?.({ kind: 'text', preview: part.text.slice(0, 80) });
           } else if (part.type === 'thinking') {
@@ -69,14 +75,22 @@ export async function runAgentTurn({
     },
   });
 
-  if (result.sessionId && result.sessionId !== state.ccSessionId) {
+  result.context = await readSessionContext(result.sessionId, env);
+  if (result.sessionId && !result.isError && !result.aborted && !signal?.aborted) {
     await updateState((s) => {
+      // /newtask during a running turn must not resurrect the old session.
+      if (signal?.aborted || s.ccSessionId !== state.ccSessionId || (s.sessionEpoch || 0) !== (state.sessionEpoch || 0) || s.extAuthBypass !== state.extAuthBypass) {
+        result.context = null;
+        return s;
+      }
       s.ccSessionId = result.sessionId;
+      s.lastCcUsage = { ...result.usage, ...result.context, model: result.model,
+        sessionId: result.sessionId, updatedAt: new Date().toISOString() };
       return s;
     }, env);
   }
 
-  if (result.aborted) {
+  if (signal?.aborted || result.aborted) {
     return { ok: false, error: 'aborted', text: 'Остановлено.', result };
   }
 
