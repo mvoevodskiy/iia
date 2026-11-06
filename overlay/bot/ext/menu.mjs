@@ -13,7 +13,6 @@ import {
 } from './models-catalog.mjs';
 import { readCodexNativeConfig } from './codex-native.mjs';
 import { botStatePath } from './paths.mjs';
-import { updateBotState } from './state-update.mjs';
 
 /** Из «🔌 Подключение» всегда назад в настройки, не в «Агент → Модель». */
 const BACK = 'menu:settings';
@@ -56,14 +55,7 @@ async function readBotState(env = process.env, home = os.homedir()) {
   }
 }
 
-export async function writeBotPermissionMode(mode, env = process.env, home = os.homedir()) {
-  return updateBotState(async (state) => {
-    state.permissionMode = mode;
-    // Codex does not consume this UI setting; keep its native conversation.
-    if (state.ccSessionId && (await loadStore(env, home)).active !== 'codex') delete state.ccSessionId;
-    return state;
-  }, env, home);
-}
+export { writeBotPermissionMode } from './integration/actions.mjs';
 
 async function currentModelId(providerId, store, env, home) {
   return resolveDisplayedModel(providerId, store.models?.[providerId], env, home);
