@@ -34,7 +34,7 @@ Owner-check выполняется в [`installUpdateHook`](integration/update-h
 
 | Данные / действие | Реализация | Проверка |
 |---|---|---|
-| Active provider, native sessions, models, efforts | [`store.mjs`](store.mjs): `loadStore`, `setActive`, `setSession`, `setSelectedModel`, `setSelectedEffort` | [store](tests/store.test.mjs), [provider-switch](tests/reference/provider-switch.test.mjs) |
+| Active provider, native sessions, models, efforts | [`store.mjs`](store.mjs): `loadStore`, `setActive`, `setSession`, `setSelectedModel`, `setSelectedEffort`; [`store-lock.mjs`](store-lock.mjs) сериализует записи между процессами | [store](tests/store.test.mjs), [конкурентные записи](tests/store-concurrency.test.mjs), [provider-switch](tests/reference/provider-switch.test.mjs) |
 | Каталог и отображаемая модель | [`models-catalog.mjs`](models-catalog.mjs): `listModelsForProvider`, `resolveDisplayedModel`; [`menu.mjs`](menu.mjs): `buildModelMenu`, `buildAgentMenu` | [menu](tests/menu.test.mjs), [codex-native](tests/codex-native.test.mjs) |
 | Применить модель/effort в store и native config | [`apply-model.mjs`](apply-model.mjs): `applyProviderModel`, `applyProviderEffort` | [apply-model](tests/apply-model.test.mjs) |
 | Сохранить UI-режим прав | [`integration/actions.mjs`](integration/actions.mjs): `writeBotPermissionMode`; совместимый реэкспорт из [`menu.mjs`](menu.mjs) | [menu-handlers](../../../.msb/bot/tests/menu-handlers.test.mjs) проверяет сохранение native Codex session |
@@ -48,7 +48,9 @@ Owner-check выполняется в [`installUpdateHook`](integration/update-h
 `parkedCcSessions` того же state, а ID выбранного CLI возвращается в `ccSessionId`.
 `ext-providers.json` хранит последние наблюдавшиеся native ID как метаданные и не
 используется для автоматического возобновления после `/newtask` или `/clear`.
-Смена провайдера увеличивает `sessionEpoch`, чтобы поздний ответ старого хода не
+Записи store синхронизируются через SQLite lock-файл рядом с JSON (0600, без
+секретов); блокировка освобождается ОС при завершении процесса. Чтение JSON
+по-прежнему не меняет state. Смена провайдера увеличивает `sessionEpoch`, чтобы поздний ответ старого хода не
 заменил текущую сессию. Повторный выбор того же provider не переключает беседу.
 
 ## Исполнение CLI
