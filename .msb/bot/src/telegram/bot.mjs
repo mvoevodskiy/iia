@@ -19,6 +19,7 @@ import { adminGuard, isSetupMode } from './auth.mjs';
 import { HELP_CC, HELP_OC, commandsForEngine } from './commands.mjs';
 import { handleCallback } from './router.mjs';
 import { hubScreen, monitorScreen, setupScreen, settingsScreen } from './screens.mjs';
+import { describeSpendLimit } from './screens/shared.mjs';
 
 /**
  * @param {ReturnType<import('../config.mjs').readConfig>} cfg
@@ -195,9 +196,9 @@ export function createBot(cfg, { bot = new Bot(cfg.botToken), runTurn = runAgent
     const { state } = await loadState();
     const day = new Date().toISOString().slice(0, 10);
     const spent = state.costHistory?.[day];
-    const limit = state.dailySpendLimit ?? 0;
+    const limit = describeSpendLimit(state.dailySpendLimit);
     await ctx.reply(
-      `${typeof spent === 'number' && Number.isFinite(spent) ? `В сохранённой статистике за сегодня: <b>$${spent.toFixed(2)}</b>.` : 'В сохранённой статистике нет данных за сегодня.'}\nСохранённый лимит: ${limit > 0 ? `$${limit}/день` : 'без ограничений'}.\nСбор стоимости и применение лимита в open-core пока не подключены.`,
+      `${typeof spent === 'number' && Number.isFinite(spent) ? `В сохранённой статистике за сегодня: <b>$${spent.toFixed(2)}</b>.` : 'В сохранённой статистике нет данных за сегодня.'}\nСохранённый лимит: ${limit}.\nСбор стоимости и применение лимита в open-core пока не подключены.`,
       { parse_mode: 'HTML' },
     );
   });

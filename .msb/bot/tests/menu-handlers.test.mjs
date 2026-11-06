@@ -6,7 +6,7 @@ import path from 'node:path';
 import { createBot } from '../src/telegram/bot.mjs';
 import { saveState, loadState } from '../src/state.mjs';
 import { readEnvMap, setEnvKey, maskValue } from '../src/env/store.mjs';
-import { connScreen, envScreen, mcpScreen, skillsScreen, limitScreen, monitorSettingsScreen, monitorDigestScreen } from '../src/telegram/screens.mjs';
+import { connScreen, envScreen, mcpScreen, skillsScreen, limitScreen, settingsScreen, monitorSettingsScreen, monitorDigestScreen } from '../src/telegram/screens.mjs';
 import { saveMonitorConfig, defaultConfig } from '../src/monitor/config.mjs';
 import { appendItems } from '../src/monitor/store.mjs';
 import { maybeSendDigest } from '../src/monitor/digest.mjs';
@@ -349,4 +349,20 @@ test('help distinguishes unimplemented undo, tunnel launch and autonomy history'
   await f.message('/undo'); assert.match(f.messages.at(-1), /пока не подключена/iu);
   await f.message('/connect'); assert.match(f.messages.at(-1), /сама туннель не запускает/iu);
   await f.message('/autostatus'); assert.match(f.messages.at(-1), /просмотр журнала[^\n]*пока не подключён/iu);
+});
+
+// The default must never be presented as a saved value when the property is absent.
+test('API limit displays the same saved state in menu, screen and /cost', async (t) => {
+  const f = await fixture(t, undefined, { overlay: false });
+  const base = (await loadState()).state;
+  for (const [value, label] of [[undefined, 'не задан'], [0, 'без ограничений'], [25, '$25/день']]) {
+    const state = { ...base };
+    if (value === undefined) delete state.dailySpendLimit; else state.dailySpendLimit = value;
+    await saveState(state);
+    const button = settingsScreen(state).keyboard.inline_keyboard.flat().find(x => x.callback_data === 'settings:limit');
+    assert.equal(button.text, `💰 Лимит API: ${label}`);
+    assert.ok(limitScreen(state).text.includes(`Сохранённый лимит: ${label}.`));
+    await f.message('/cost'); assert.ok(f.messages.at(-1).includes(`Сохранённый лимит: ${label}.`));
+    assert.deepEqual((await loadState()).state, state, 'viewing must not write a default');
+  }
 });

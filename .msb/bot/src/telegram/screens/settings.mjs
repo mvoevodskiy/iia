@@ -5,13 +5,10 @@
 import { InlineKeyboard } from 'grammy';
 import { QUICK_KEYS, listEnvEntries } from '../../env/store.mjs';
 import { escapeHtml } from '../edit.mjs';
-import { BLANK } from './shared.mjs';
+import { BLANK, describeSpendLimit } from './shared.mjs';
 
 export function settingsScreen(state, { showEngines = true } = {}) {
-  const limit =
-    state.dailySpendLimit > 0
-      ? `💰 Лимит API: $${state.dailySpendLimit}/день`
-      : '💰 Лимит API: без ограничений';
+  const limit = `💰 Лимит API: ${describeSpendLimit(state.dailySpendLimit)}`;
   const kb = new InlineKeyboard();
   kb.text('🔑 Переменные окружения', 'settings:env').row();
   kb.text('🔌 Подключения', 'settings:auth').row();
@@ -64,9 +61,9 @@ export function tzScreen(state) {
 }
 
 export function limitScreen(state) {
-  const lim = state.dailySpendLimit ?? 10;
+  const lim = describeSpendLimit(state.dailySpendLimit);
   return {
-    text: `<b>💰 Лимит API</b>\n\nСохранённый лимит: ${lim > 0 ? `$${lim}/день` : 'без ограничений'}.\nВыбери значение кнопкой. Проверка и применение лимита в open-core пока не подключены.\n${BLANK}`,
+    text: `<b>💰 Лимит API</b>\n\nСохранённый лимит: ${lim}.\nВыбери значение кнопкой. Проверка и применение лимита в open-core пока не подключены.\n${BLANK}`,
     keyboard: new InlineKeyboard()
       .text('$10', 'settings:limit:set:10')
       .text('$25', 'settings:limit:set:25')
