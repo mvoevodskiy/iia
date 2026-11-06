@@ -155,3 +155,58 @@ test('отрезки за сутки: чат, фон и то, что идёт с
   const idle = { busy: false, since: null, kind: null, text: null, helpers: 0 };
   assert.equal(timeline([], [], idle, NOW.getTime()).length, 0);
 });
+
+
+test('provider CLI identity includes Codex, Cursor and Qwen but never arbitrary arguments', () => {
+  for (const cmd of ['/opt/codex/bin/codex\0exec\0--json', '/usr/bin/node\0/opt/node_modules/@openai/codex/bin/codex.js\0exec', '/opt/cursor-agent\0-p', '/usr/bin/qwen\0-p']) assert.equal(isAgentCmdline(cmd), true, cmd);
+  for (const cmd of ['/bin/bash\0-c\0codex exec hi', '/usr/bin/node\0/opt/bot/index.js\0codex', '/usr/bin/cat\0/tmp/codex', '/usr/bin/node\0/tmp/codex.js']) assert.equal(isAgentCmdline(cmd), false, cmd);
+});
+
+test('turn IDs prevent a fast provider switch from borrowing another reply or action count', () => {
+  const ts = '2026-11-06T00:00:00.000Z';
+  const result = lastResult([{ ts, turnId: 'codex-turn', kind: 'agent_reply', summary: 'Codex' }],
+    [{ ts, turnId: 'claude-turn', toolCalls: 17, elapsedMs: 5000 }, { ts, turnId: 'codex-turn', elapsedMs: 2000 }],
+    [{ ts, turnId: 'claude-turn', role: 'assistant', text: 'Claude' }, { ts, turnId: 'codex-turn', role: 'assistant', text: 'Codex' }]);
+  assert.equal(result?.text, 'Codex'); assert.equal(result?.actions, null);
+});
+
+
+test('Codex npm launcher beside native worker is not counted as a helper', async t => {
+  const fs = await import('node:fs/promises');
+  const os = await import('node:os');
+  const root = await fs.mkdtemp(join(os.tmpdir(), 'codex-processes-'));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  await fs.mkdir(join(root, 'group'));
+  await fs.writeFile(join(root, 'group/cgroup.procs'), '1\n2\n');
+  for (const [pid, command] of [[1, '/usr/bin/node\0/opt/node_modules/@openai/codex/bin/codex.js'], [2, '/opt/vendor/codex/codex\0exec']] as const) {
+    await fs.mkdir(join(root, String(pid)));
+    await fs.writeFile(join(root, String(pid), 'cmdline'), command);
+    await fs.writeFile(join(root, String(pid), 'stat'), `${pid} (codex) S 1 42 42 0 -1 4194560 1 0 0 0 0 0 0 0 20 0 1 0 777 1000`);
+  }
+  const opts = { procRoot: root, cgroupRoot: root, controlGroup: 'group', bootMs: BOOT, clkTck: 100 };
+  assert.deepEqual(agentProcesses(opts).map(p => p.pid), [2]);
+  await fs.writeFile(join(root, 'group/cgroup.procs'), '1\n');
+  assert.deepEqual(agentProcesses(opts).map(p => p.pid), [1]);
+});
+
+
+test('late previous completion never closes the next request with a different turn ID', () => {
+  const records = [
+    { ts: '2026-11-06T00:00:00Z', turnId: 'old', role: 'user', text: 'old' },
+    { ts: '2026-11-06T00:00:02Z', turnId: 'new', role: 'user', text: 'new' },
+    { ts: '2026-11-06T00:00:03Z', turnId: 'old', role: 'assistant', text: 'old finished late' },
+  ];
+  assert.equal(pendingRequest(records)?.text, 'new');
+  assert.equal(pendingRequest([...records, { ts: '2026-11-06T00:00:04Z', turnId: 'new', role: 'assistant', text: '' }]), null);
+});
+
+
+test('new-format duration fallback uses only its own request when trace is missing', () => {
+  const ts = '2026-11-06T00:03:00Z';
+  const r = lastResult([{ ts, turnId: 'new', kind: 'agent_reply', summary: 'done' }], [], [
+    { ts: '2026-11-06T00:00:00Z', turnId: 'old', role: 'user' },
+    { ts: '2026-11-06T00:02:00Z', turnId: 'new', role: 'user' },
+    { ts, turnId: 'new', role: 'assistant', text: 'done' },
+  ]);
+  assert.equal(r?.durationMin, 1);
+});

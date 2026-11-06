@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { DEFAULT_PROVIDER, isProviderId } from './providers.mjs';
 import { botDir } from './paths.mjs';
+import { withStoreLock } from './store-lock.mjs';
 
 const STORE_NAME = 'ext-providers.json';
 
@@ -42,7 +43,7 @@ export async function loadStore(env = process.env, home = env.HOME || os.homedir
   }
 }
 
-export async function saveStore(store, env = process.env, home = env.HOME || os.homedir()) {
+async function writeStore(store, env, home) {
   const file = storePath(env, home);
   await fs.mkdir(path.dirname(file), { recursive: true });
   const next = {
@@ -59,19 +60,30 @@ export async function saveStore(store, env = process.env, home = env.HOME || os.
   return next;
 }
 
+/** Replace a complete snapshot; incremental callers must use the atomic setters. */
+export async function saveStore(store, env = process.env, home = env.HOME || os.homedir()) {
+  return withStoreLock(storePath(env, home), () => writeStore(store, env, home));
+}
+
+function updateStore(env, home, change) {
+  return withStoreLock(storePath(env, home), async () => {
+    const store = await loadStore(env, home);
+    change(store);
+    return writeStore(store, env, home);
+  });
+}
+
 export async function setActive(providerId, env = process.env, home = env.HOME || os.homedir()) {
   if (!isProviderId(providerId)) throw new Error(`unknown provider: ${providerId}`);
-  const store = await loadStore(env, home);
-  store.active = providerId;
-  return saveStore(store, env, home);
+  return updateStore(env, home, store => { store.active = providerId; });
 }
 
 export async function setSession(providerId, sessionId, env = process.env, home = env.HOME || os.homedir()) {
   if (!isProviderId(providerId)) throw new Error(`unknown provider: ${providerId}`);
-  const store = await loadStore(env, home);
-  if (!sessionId) delete store.sessions[providerId];
-  else store.sessions[providerId] = String(sessionId);
-  return saveStore(store, env, home);
+  return updateStore(env, home, store => {
+    if (!sessionId) delete store.sessions[providerId];
+    else store.sessions[providerId] = String(sessionId);
+  });
 }
 
 export async function getSelectedModel(providerId, env = process.env, home = env.HOME || os.homedir()) {
@@ -82,11 +94,11 @@ export async function getSelectedModel(providerId, env = process.env, home = env
 
 export async function setSelectedModel(providerId, modelId, env = process.env, home = env.HOME || os.homedir()) {
   if (!isProviderId(providerId)) throw new Error(`unknown provider: ${providerId}`);
-  const store = await loadStore(env, home);
-  if (!store.models || typeof store.models !== 'object') store.models = {};
-  if (!modelId) delete store.models[providerId];
-  else store.models[providerId] = String(modelId).trim();
-  return saveStore(store, env, home);
+  return updateStore(env, home, store => {
+    if (!store.models || typeof store.models !== 'object') store.models = {};
+    if (!modelId) delete store.models[providerId];
+    else store.models[providerId] = String(modelId).trim();
+  });
 }
 
 export async function getSelectedEffort(providerId, env = process.env, home = env.HOME || os.homedir()) {
@@ -97,11 +109,11 @@ export async function getSelectedEffort(providerId, env = process.env, home = en
 
 export async function setSelectedEffort(providerId, effort, env = process.env, home = env.HOME || os.homedir()) {
   if (!isProviderId(providerId)) throw new Error(`unknown provider: ${providerId}`);
-  const store = await loadStore(env, home);
-  if (!store.efforts || typeof store.efforts !== 'object') store.efforts = {};
-  if (!effort) delete store.efforts[providerId];
-  else store.efforts[providerId] = String(effort).trim();
-  return saveStore(store, env, home);
+  return updateStore(env, home, store => {
+    if (!store.efforts || typeof store.efforts !== 'object') store.efforts = {};
+    if (!effort) delete store.efforts[providerId];
+    else store.efforts[providerId] = String(effort).trim();
+  });
 }
 
 export function encodeExtSession(providerId, nativeId) {

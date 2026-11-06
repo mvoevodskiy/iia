@@ -1,19 +1,19 @@
-"""enable/disable Пульта: pult-web + pult-collector (код уже в ~/.msb/pult)."""
+"""enable/disable Пульта: pult-web + pult-collector в выбранном client root."""
 import os
 import subprocess
 
-from const import CLIENT_HOME, STATE_DIR
+from const import CLIENT_HOME, CLIENT_ROOT, STATE_DIR
 from state import pult_info
 from util import Refused, ensure_root_dir, now, systemctl_ok, systemctl_word, write_file
 
-PULT_ROOT = os.path.join(CLIENT_HOME, ".msb", "pult")
+PULT_ROOT = os.path.join(CLIENT_ROOT, "pult")
 PULT_SECRETS = os.path.join(CLIENT_HOME, "pult-secrets")
 PULT_OFF = os.path.join(STATE_DIR, "pult.off")
 UNITS = ("pult-web.service", "pult-collector.service")
 
 
 def _bot_env_path(bot_id):
-    return os.path.join(CLIENT_HOME, ".msb", "bots", bot_id, ".env")
+    return os.path.join(CLIENT_ROOT, "bots", bot_id, ".env")
 
 
 def _load_bot_env(bot_id):

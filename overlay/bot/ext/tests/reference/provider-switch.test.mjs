@@ -28,6 +28,7 @@ test('reference: successful Claude↔Codex switches preserve auth and strip only
   assert.deepEqual(result, {
     firstProvider: 'codex', firstMarker: 'codex', oldClaudeSessionCleared: true,
     finalProvider: 'claude', finalMarkerRemoved: true, foreignSessionCleared: true,
+    claudeSessionRestored: true, codexSessionRestored: true, returnedProvider: 'codex',
     nativeAuthUnchanged: true, claudeAuthUnchanged: true, foreignCode: 0, ownCode: 0,
     forwarded: [
       { argv: ['-p', '--model', 'sonnet'], stdin: 'reference prompt' },
@@ -62,4 +63,16 @@ test('reference: Codex failures preserve resume and never replay an executed ope
     modelError: { exitCode: 1, executions: 1, effects: 0, savedSession: thread, emittedSessions: [session] },
     streamCut: { exitCode: 1, executions: 1, effects: 1, savedSession: thread, emittedSessions: [session] },
   }, 'A failed response must not invalidate history or repeat an already executed tool operation');
+});
+
+
+test('reference: a turn stays with its original provider if selection changes before shim starts', async (t) => {
+  const r = await scenario(t, 'pinned-route');
+  assert.equal(r.codexCalls, 1);
+  assert.equal(r.codexResumedOwnSession, true);
+  assert.deepEqual(r.claudeCalls, [['-p', '--resume', 'reference-claude-session']]);
+  assert.equal(r.claudeTurnCode, 0);
+  assert.notEqual(r.invalidTurnCode, 0);
+  assert.notEqual(r.restrictedTurnCode, 0);
+  assert.equal(r.invalidLaunchedCli, false);
 });

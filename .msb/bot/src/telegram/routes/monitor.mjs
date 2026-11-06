@@ -22,6 +22,14 @@ export async function handleMonitorRoute({ data, show, pending, chatId, bot }) {
       keyboard: (await monitorSourcesScreen()).keyboard,
     });
   }
+  if (data.startsWith('mon:src-key:')) {
+    const parts = data.split(':');
+    const [, , type, token] = parts;
+    if (parts.length === 4 && type && /^[a-f0-9]{32}$/.test(token || '')) {
+      await removeSource(type, token, process.env, { byToken: true });
+    }
+    return show(await monitorSourcesScreen());
+  }
   if (data.startsWith('mon:src-del:')) {
     const rest = data.slice('mon:src-del:'.length);
     const i = rest.indexOf(':');
@@ -31,9 +39,7 @@ export async function handleMonitorRoute({ data, show, pending, chatId, bot }) {
     return show(await monitorSourcesScreen());
   }
   if (data === 'mon:digest-toggle') {
-    const { loadMonitorConfig } = await import('../../monitor/config.mjs');
-    const cfg = await loadMonitorConfig();
-    await updateDigestSettings({ enabled: !(cfg.digest?.enabled !== false) });
+    await updateDigestSettings((digest) => ({ enabled: !(digest?.enabled !== false) }));
     return show(await monitorDigestScreen());
   }
   if (data.startsWith('mon:digest:time:set:')) {
@@ -59,10 +65,8 @@ export async function handleMonitorRoute({ data, show, pending, chatId, bot }) {
     return show(await monitorScreen());
   }
   if (data.startsWith('mon:storage:set:')) {
-    const { loadMonitorConfig, saveMonitorConfig } = await import('../../monitor/config.mjs');
-    const cfg = await loadMonitorConfig();
-    cfg.storage = data.split(':').pop();
-    await saveMonitorConfig(cfg);
+    const { updateMonitorConfig } = await import('../../monitor/config.mjs');
+    await updateMonitorConfig((cfg) => { cfg.storage = data.split(':').pop(); });
     return show(monitorSettingsScreen());
   }
   if (

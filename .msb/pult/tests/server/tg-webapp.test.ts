@@ -114,3 +114,24 @@ test('verify: повторно URL-кодированный initData тоже п
   const ok = verifyTgWebAppInitData(wrapped, BOT, OWNER, authDate + 60);
   assert.equal(ok.ok, true);
 });
+
+// Telegram HMAC authenticates signature too; only Ed25519's check string omits it.
+// https://core.telegram.org/bots/webapps#validating-data-received-via-the-mini-app
+test('HMAC includes the optional Ed25519 signature field and rejects its tampering', () => {
+  const authDate = 1_700_000_000;
+  const fields = { auth_date: String(authDate),
+    user: JSON.stringify({ id: Number(OWNER), first_name: 'Test' }),
+    signature: 'synthetic-ed25519-signature' };
+  const signed = signInitData(BOT, fields);
+  assert.equal(verifyTgWebAppInitData(signed, BOT, OWNER, authDate + 60).ok, true);
+  const tampered = new URLSearchParams(signed);
+  tampered.set('signature', 'changed-signature');
+  assert.equal(initDataSignatureOk(tampered.toString(), BOT), false);
+  tampered.delete('signature');
+  assert.equal(initDataSignatureOk(tampered.toString(), BOT), false);
+  const unsignedExtra = new URLSearchParams(signInitData(BOT, {
+    auth_date: fields.auth_date, user: fields.user,
+  }));
+  unsignedExtra.set('signature', fields.signature);
+  assert.equal(initDataSignatureOk(unsignedExtra.toString(), BOT), false);
+});

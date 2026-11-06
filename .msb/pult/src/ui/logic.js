@@ -181,7 +181,9 @@ export const RANGE_LABEL = { '24h': '24 ч', '7d': '7 дней', '30d': '30 дн
 
 /** '#/tasks/abc?range=7d' → { name: 'task', tab: 'tasks', id: 'abc', query: { range: '7d' } }. */
 export function parseRoute(hash) {
-  const raw = String(hash || '').replace(/^#/, '');
+  let raw = String(hash || '').replace(/^#/, '');
+  // A Telegram launch hash is metadata, not an application route.
+  if (/^tgWebApp(?:Data|Version|Platform|ThemeParams)=/.test(raw)) raw = '/';
   const [path, qs = ''] = raw.split('?');
   const query = {};
   for (const pair of qs.split('&')) {
@@ -388,8 +390,12 @@ export function subscriptionInfo(sub, now) {
   else { text = st || 'неизвестно'; }
   const bits = [text];
   if (sub.overage) { bits.push('расход сверх лимита'); level = level ?? 'warn'; }
-  if (sub.resetsAt) bits.push(`сброс ${dayDiff(now, sub.resetsAt) === 0 ? 'в ' : ''}${fmtWhen(sub.resetsAt, now)}`);
-  const stale = now - toMs(sub.updatedAt) > 6 * 3600e3;
+  if (!sub.windows?.length && sub.resetsAt) bits.push(`сброс ${dayDiff(now, sub.resetsAt) === 0 ? 'в ' : ''}${fmtWhen(sub.resetsAt, now)}`);
+  for (const w of sub.windows ?? []) {
+    const duration = w.windowMinutes % 1440 === 0 ? `${w.windowMinutes / 1440} дн.` : w.windowMinutes % 60 === 0 ? `${w.windowMinutes / 60} ч` : `${w.windowMinutes} мин`;
+    bits.push(`${duration}: осталось ${Math.round((100 - w.usedPercent) * 10) / 10}% · сброс ${fmtWhen(w.resetsAt, now)}`);
+  }
+  const stale = sub.stale === true || now - toMs(sub.updatedAt) > 6 * 3600e3 || (sub.windows ?? []).some(w => toMs(w.resetsAt) <= now);
   if (stale) bits.push(`на ${fmtWhen(sub.updatedAt, now)}, устарело`);
   return { text: bits.join(' · '), level, stale };
 }

@@ -4,16 +4,13 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
-import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 
 // Behavioral reference: master 00f081f2220d0e6d3a186e8e1bb447b57acd6ebf.
-// The archived vendor is the reference, NOT the implementation under test.
+// Assertions below pin the reviewed behavior; the removed closed bundle is not a test dependency.
 // vendor/deobfuscated.js: 102108–102241 (STT), 119871–119990 (voice),
 // 109960–110060 / 106170+ (progress), 3297–3384 (footer).
-// These assertions intentionally fail until the NEW open-core restores the behavior.
-const referenceBlob = '73aa9e7e850bad7ac1ea8a8091d086ecbfd47a11';
-const vendor = new URL('../../vendor/deobfuscated.js', import.meta.url);
+// Historical source blob: 73aa9e7e850bad7ac1ea8a8091d086ecbfd47a11 (see README).
 const harness = fileURLToPath(new URL('./fixtures/voice-progress-harness.mjs', import.meta.url));
 const marker = 'MSB_REFERENCE_RESULT=';
 const transcript = 'Проверь <сервис> & очередь. ' + 'Это полный текст голосовой задачи. '.repeat(12) + 'КОНЕЦ_ПОЛНОЙ_ТРАНСКРИПЦИИ';
@@ -21,10 +18,6 @@ const answer = 'Эталонный ответ на задачу.';
 const escapeHtml = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
 async function runScenario(t, scenario) {
-  const source = await fs.readFile(vendor);
-  const blob = createHash('sha1').update(`blob ${source.length}\0`).update(source).digest('hex');
-  assert.equal(blob, referenceBlob, 'The archived behavior reference changed; re-review its contract.');
-
   const fixtureHome = await fs.mkdtemp(path.join(os.tmpdir(), 'msb-reference-voice-progress-'));
   t.after(() => fs.rm(fixtureHome, { recursive: true, force: true }));
   const result = await new Promise((resolve, reject) => {

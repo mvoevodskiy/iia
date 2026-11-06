@@ -24,6 +24,11 @@ function run(scenario) {
   assert.ok(report.events.includes('stop-drained'), 'The stop wrapper must finish before state and delivery are inspected.');
   assert.ok(report.calls.some(call => call.text === 'Нечего останавливать 🤷'), 'Preserve the original idle stop response.');
   assert.equal(report.intervalsAfterStop, 0, 'No progress/typing interval may survive the drained stop.');
+  assert.equal(new Set(report.history.map(row => row.turnId)).size, report.history.length, 'one terminal journal record per turn');
+  assert.ok(report.history.every(row => ['ok', 'aborted', 'error'].includes(row.status)));
+  for (const row of report.history.filter(row => row.status === 'ok')) {
+    assert.equal(row.providerId, report.cli.find(call => call.prompt === row.query)?.provider, 'History follows the actual selected CLI');
+  }
   return report;
 }
 
@@ -42,6 +47,7 @@ function assertAnswerReplacedStatus(report, number) {
 
 test('turn lifecycle: early stop avoids spawn; failed initial status does not strand the next turn', () => {
   const early = run('early-stop');
+  assert.equal(early.history[0].providerId, null, 'no provider claimed before any CLI marker');
   assert.equal(early.cli.length, 0, 'An aborted request must not spawn CLI after its delayed status resolves.');
   assert.ok(early.events.indexOf('stop-delivered') < early.events.indexOf('initial-status-released'));
   assert.equal(early.finalMessages[early.initialStatusId], stopped);
@@ -97,4 +103,31 @@ test('turn lifecycle: newtask during the first turn prevents its late session ID
   assert.equal(r.state.sessionEpoch, 1);
   assert.equal(r.state.fixtureUnrelated, 'preserve-me');
   assertAnswerReplacedStatus(r, 1);
+});
+
+test('turn lifecycle: a late turn cannot replace the session after switching away and back', () => {
+  const r = run('provider-roundtrip');
+  assert.ok(r.events.indexOf('provider-roundtrip-completed') < r.events.indexOf('cli-late-result:1'));
+  assert.equal(r.state.ccSessionId, 'ext:codex:0199a213-81c0-7800-8aa1-bbab2a035a53');
+  assert.equal(r.state.parkedCcSessions.claude, 'saved-claude-session');
+  assert.equal(r.state.sessionEpoch, 2);
+  assert.equal(r.cli[0].provider, 'codex', 'Pass the provider selected at turn start to the CLI');
+});
+
+test('turn lifecycle: /newtask stays reset across provider switches and a late turn', () => {
+  const r = run('provider-reset');
+  assert.ok(r.events.includes('reset-acknowledged'));
+  assert.ok(r.events.indexOf('provider-roundtrip-completed') < r.events.indexOf('cli-late-result:1'));
+  assert.equal(r.state.ccSessionId, undefined);
+  assert.equal(r.state.parkedCcSessions.claude, 'saved-claude-session');
+  assert.equal(r.state.sessionEpoch, 3);
+});
+
+test('turn lifecycle: /clear stays reset across provider switches and a late turn', () => {
+  const r = run('provider-clear');
+  assert.ok(r.events.includes('reset-acknowledged'));
+  assert.ok(r.events.indexOf('provider-roundtrip-completed') < r.events.indexOf('cli-late-result:1'));
+  assert.equal(r.state.ccSessionId, undefined);
+  assert.equal(r.state.parkedCcSessions.claude, 'saved-claude-session');
+  assert.equal(r.state.sessionEpoch, 3);
 });

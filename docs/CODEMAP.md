@@ -10,6 +10,7 @@
 
 | Задача | Модуль → подмодуль | Конечная точка / проверка |
 |---|---|---|
+| История запросов и квоты в Пульте | [Пульт → История и провайдеры](pult-telemetry.md) | общий journal, Claude state, Codex account RPC; telemetry tests |
 | Изменить кнопку или переход настроек | [Telegram → Настройки и кнопки](../.msb/bot/src/telegram/README.md#настройки-и-кнопки) | `settingsScreen`, `handleCallback`; UI и engine-menu tests |
 | Разобраться с голосовым | [Telegram → Голос](../.msb/bot/src/telegram/README.md#голос) | `recognizeVoice` → `transcribeVoice`; voice/STT tests |
 | Исправить stop, индикацию или итоговый ответ | [Telegram → Жизненный цикл хода](../.msb/bot/src/telegram/README.md#жизненный-цикл-хода) | `executeTurn`, progress, response; lifecycle/reference tests |
@@ -44,7 +45,7 @@ verify проверяет их связь и зависимости. Опера�
 
 | Что хранится | Владелец в исходниках | Проверка |
 |---|---|---|
-| Core engine, auth gate, текущая CLI-сессия, `sessionEpoch` | [`state.mjs`](../.msb/bot/src/state.mjs): `loadState`, `updateState`; пути в [`paths.mjs`](../.msb/bot/src/paths.mjs) | [paths-state](../.msb/bot/tests/paths-state.test.mjs), [state-concurrency](../.msb/bot/tests/state-concurrency.test.mjs) |
+| Core engine, auth gate, текущая CLI-сессия и `sessionEpoch` | [`state.mjs`](../.msb/bot/src/state.mjs): `loadState`, `updateState`; сохранённые при переключении беседы — [`provider-sessions.mjs`](../overlay/bot/ext/provider-sessions.mjs) | [paths-state](../.msb/bot/tests/paths-state.test.mjs), [provider-sessions](../overlay/bot/ext/tests/provider-sessions.test.mjs), [turn-lifecycle](../.msb/bot/tests/turn-lifecycle.test.mjs) |
 | Переменные из меню `.env` | [`env/store.mjs`](../.msb/bot/src/env/store.mjs): `listEnvEntries`, `setEnvKey`, `deleteEnvKey` | [monitor-env](../.msb/bot/tests/monitor-env.test.mjs) |
 | Выбранный CLI-провайдер, его модели, effort, native session IDs | [`ext/store.mjs`](../overlay/bot/ext/store.mjs): `loadStore`, `setActive`, `setSession` | [store](../overlay/bot/ext/tests/store.test.mjs), [provider-switch](../overlay/bot/ext/tests/reference/provider-switch.test.mjs) |
 | STT с приоритетом process → per-bot → shared env | [`media/stt.mjs`](../.msb/bot/src/media/stt.mjs): `resolveSttConfig` | [stt](../.msb/bot/tests/stt.test.mjs) |

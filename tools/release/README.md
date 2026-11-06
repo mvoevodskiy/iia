@@ -33,7 +33,8 @@ guarded puller/sync. Node, Codex CLI и установленные зависи�
 как внешние runtime-зависимости. Native auth, `.env`, `bots/*/state.json`,
 сессии, workspace и node_modules не копируются и не сбрасываются.
 
-`checks/source` — тот же код плюс тесты и неисполняемый legacy reference.
+`checks/source` — тот же код плюс тесты с закреплёнными legacy-контрактами.
+Удалённый закрытый bundle не требуется тестам и в артефакт не включается.
 Его содержимое и ссылки закреплены в manifest. Полный baseline выполняется
 в отдельном HOME с профилем msb; отдельный smoke проверяет реальные байты
 `runtime/` и их jar1 default, `.iia`, IIA aliases, iia_http и updater guards.

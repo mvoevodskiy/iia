@@ -41,6 +41,8 @@ export interface Snapshot {
   /** Что требует внимания — посчитано правилами в сборщике (src/collector/analyze.ts). */
   attention: Attention[];
   subscription: Subscription | null;
+  /** Per-provider quotas; legacy subscription remains Claude-only. */
+  subscriptions?: Subscription[];
   balances: Balance[];
   /** Ближайшие запуски (до 8 штук), по времени. */
   upcoming: Upcoming[];
@@ -234,6 +236,9 @@ export interface Attention {
 }
 
 export interface Subscription {
+  providerId?: string;
+  stale?: boolean;
+  windows?: { usedPercent: number; windowMinutes: number; resetsAt: Iso }[];
   /** allowed | limited | … как отдаёт платформа. */
   status: string;
   resetsAt: Iso | null;

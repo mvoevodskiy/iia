@@ -1,3 +1,4 @@
+import os
 import re
 
 HELPER_VERSION = "1.0.0"
@@ -49,8 +50,15 @@ CODES = (
     "ALREADY_CURRENT", "DOWNGRADE", "FAILED",
 )
 
+RUNTIME_PROFILE = os.environ.get("MSB_RUNTIME_PROFILE", "msb")
+if RUNTIME_PROFILE not in ("msb", "jar1"):
+    raise ValueError("MSB_RUNTIME_PROFILE must be msb or jar1")
+CLIENT_HOME = "/home/client"
+CLIENT_NAMESPACE = "iia" if RUNTIME_PROFILE == "jar1" else "msb"
+CLIENT_ROOT = os.path.join(CLIENT_HOME, "." + CLIENT_NAMESPACE)
+
 SOURCES = (
-    ("client", "/home/client/.msb/engine", "client"),
+    ("client", os.path.join(CLIENT_ROOT, "engine"), "client"),
     ("openclaw", "/home/openclaw/.msb-engine", "openclaw"),
 )
 
@@ -63,15 +71,14 @@ RATE_WINDOW = 3600
 SEEN_KEEP = 64
 STUCK_SLEEP = 10
 
-CLIENT_HOME = "/home/client"
 OC_HOME = "/home/openclaw"
 RUN_DIR = "/run/msb-engine"
 STATE_DIR = "/var/lib/msb-engine"
 ETC_DIR = "/etc/msb-engine"
 LIB_DIR = "/usr/local/lib/msb-engine"
 HELPER = "/usr/local/sbin/msb-engine"
-BOT_UNIT_TMPL = "msb-bot@%s.service"
-BOT_TEMPLATE = "/etc/systemd/system/msb-bot@.service"
+BOT_UNIT_TMPL = CLIENT_NAMESPACE + "-bot@%s.service"
+BOT_TEMPLATE = "/etc/systemd/system/" + CLIENT_NAMESPACE + "-bot@.service"
 MARKS_DIR = "/etc/msb-engine/bots"
 OC_OFF = "/var/lib/msb-engine/openclaw.off"
 OC_MARKER = "/var/lib/msb-engine/openclaw.installed"

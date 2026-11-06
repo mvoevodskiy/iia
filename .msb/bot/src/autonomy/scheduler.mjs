@@ -3,6 +3,7 @@ import path from 'node:path';
 import { autonomyDir, ensureDir } from '../paths.mjs';
 import { runAgentTurn } from '../agent/turn.mjs';
 import { listTasks, saveAllTasks } from './store.mjs';
+import { trySessionOperation } from '../agent/session-operation.mjs';
 
 const START_DELAY_MS = 30_000;
 const TICK_MS = 60_000;
@@ -11,7 +12,7 @@ const TICK_MS = 60_000;
  * Упрощённый планировщик фоновых задач (аналог [msb/scheduler]).
  * Навигация: [Автономка](./README.md) → [общий ход](../agent/turn.mjs).
  */
-export function startScheduler({ api, adminId, log = console.error } = {}) {
+export function startScheduler({ api, adminId, log = console.error, runTurn = runAgentTurn } = {}) {
   let stopped = false;
   let busy = false;
 
@@ -31,7 +32,7 @@ export function startScheduler({ api, adminId, log = console.error } = {}) {
       for (const task of tasks) {
         if (task.enabled === false) continue;
         if ((task.nextAt || 0) > now) continue;
-        await runTask(task, api, adminId, log);
+        if (!await runTask(task, api, adminId, log, runTurn)) continue;
         task.nextAt = now + Math.max(1, task.everyHours || 24) * 3600 * 1000;
         changed = true;
       }
@@ -49,16 +50,28 @@ export function startScheduler({ api, adminId, log = console.error } = {}) {
       clearTimeout(boot);
       clearInterval(timer);
     },
+    tickNow: tick,
   };
 }
 
-async function runTask(task, api, adminId, log) {
+async function runTask(task, api, adminId, log, runTurn) {
+  const release = trySessionOperation();
+  if (!release) return false;
+  try {
+    await executeTask(task, api, adminId, log, runTurn);
+    return true;
+  } finally {
+    release();
+  }
+}
+
+async function executeTask(task, api, adminId, log, runTurn) {
   const dir = autonomyDir();
   ensureDir(dir);
   const runId = `${Date.now()}-${task.id.slice(0, 8)}`;
   log(`[msb/scheduler] run ${runId} task=${task.title}`);
 
-  const result = await runAgentTurn({
+  const result = await runTurn({
     prompt: [
       'Ты выполняешь фоновую задачу владельца в общей с чатом сессии.',
       'Сделай ровно то, что в задании. В конце — короткий итог.',

@@ -87,14 +87,15 @@ export function analyze(inp: AnalyzeInput): Attention[] {
     }
   }
 
-  const sub = s.subscription;
-  // allowed и allowed_warning — окно ещё открыто; исчерпано — всё остальное (rejected и т. п.)
-  if (sub && !sub.status.startsWith('allowed')) {
-    const resets = sub.resetsAt ? Date.parse(sub.resetsAt) : null;
-    // окно уже сбросилось, а свежей записи ещё нет — не тревожим
-    if (resets === null || resets > nowMs) {
-      const when = resets === null ? '' : `, сброс в ${fmtWhen(resets, nowMs, tz)}`;
-      add({ key: 'subscription', level: 'warn', text: `Окно подписки исчерпано${when}`, project: null, link: { tab: 'overview' }, since: sub.updatedAt });
+  for (const sub of s.subscriptions ?? (s.subscription ? [s.subscription] : [])) {
+    // allowed и allowed_warning — окно ещё открыто; исчерпано — всё остальное (rejected и т. п.)
+    if (sub && !sub.status.startsWith('allowed')) {
+      const resets = sub.resetsAt ? Date.parse(sub.resetsAt) : null;
+      // окно уже сбросилось, а свежей записи ещё нет — не тревожим
+      if (resets === null || resets > nowMs) {
+        const when = resets === null ? '' : `, сброс в ${fmtWhen(resets, nowMs, tz)}`;
+        add({ key: sub.providerId ? `subscription:${sub.providerId}` : 'subscription', level: 'warn', text: `${sub.providerId === 'codex' ? 'Codex: ' : sub.providerId === 'claude' ? 'Claude: ' : ''}Окно подписки исчерпано${when}`, project: null, link: { tab: 'overview' }, since: sub.updatedAt });
+      }
     }
   }
 

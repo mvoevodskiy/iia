@@ -2,8 +2,10 @@
 // в sourceErrors, остальное собирается. Медленное (замер процессора, Deepgram, systemctl, git, журнал)
 // идёт параллельно, поэтому сбор укладывается примерно в секунду-две даже на первом тике.
 
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { readFileSync, existsSync } from 'node:fs';
+import { join, dirname } from 'node:path';
+import { activeProvider } from './sources/provider.ts';
+import { CodexQuota, readCodexLimits } from './sources/codex-quota.ts';
 import { performance } from 'node:perf_hooks';
 import { SNAPSHOT_SCHEMA, type Balance, type Bot, type ServerState, type Service, type Snapshot, type Subscription, type Task } from '../shared/types.ts';
 import type { PultConfig } from '../shared/config.ts';
@@ -35,6 +37,7 @@ export interface CollectorOptions {
   clkTck?: number;
   /** Сколько ждать медленные остатки (Deepgram); не задано — ждать до конца (once, check). */
   slowSourceWaitMs?: number;
+  readCodexQuota?: () => Promise<unknown>;
 }
 
 const DAY = 86_400_000;
@@ -60,9 +63,14 @@ export class Collector {
   private readonly slowSourceWaitMs: number | undefined;
   private clkTck: number | null;
   private prevCpu: CpuSample | null = null;
+  private readonly codexQuota: CodexQuota;
 
   constructor(config: PultConfig, opts: CollectorOptions = {}) {
     this.config = config;
+    const quotaEnv = opts.env ?? process.env;
+    const profileBin = join(dirname(config.botsRoot), 'ext-tools/bin/codex');
+    const binary = quotaEnv.PULT_CODEX_BIN || (existsSync(profileBin) ? profileBin : 'codex');
+    this.codexQuota = new CodexQuota(opts.readCodexQuota ?? (() => readCodexLimits(binary, quotaEnv)));
     this.procRoot = opts.procRoot ?? '/proc';
     this.cgroupRoot = opts.cgroupRoot ?? '/sys/fs/cgroup';
     this.diskPath = opts.diskPath ?? '/';
@@ -122,10 +130,12 @@ export class Collector {
     const botTasks: { task: Task; findings: Finding[]; repo: string | null }[] = [];
     let tasksHidden = 0;
     const rates: RateLimitInfo[] = [];
+    let hasCodex = false;
     for (const b of cfg.bots) {
       const h = unitHealth(units.get(b.unit), this.cgroupRoot, nowMs);
       const data = readBotData(join(cfg.botsRoot, b.id), nowMs, problems, b.name);
       if (data.rate) rates.push(data.rate);
+      if (problems.guard(`бот «${b.name}»: провайдер`, () => activeProvider(join(cfg.botsRoot, b.id)), 'unknown') === 'codex') hasCodex = true;
 
       for (const a of data.actions) {
         if (!isActiveAction(a, nowMs)) {
@@ -228,6 +238,13 @@ export class Collector {
       }
       : null;
 
+    const subscriptions: Subscription[] = subscription ? [{ ...subscription, providerId: 'claude' }] : [];
+    if (hasCodex) {
+      const quota = await this.codexQuota.get(nowMs);
+      if (quota.subscription) subscriptions.push(quota.subscription);
+      if (quota.error) problems.add('подписка Codex', new Error(quota.error));
+    }
+
     const balances: Balance[] = [];
     if (cfg.balances.proxyapi) balances.push(proxyapiBalance(cfg.balances.proxyapi.file, cfg.balances.proxyapi.lowRub, nowMs));
     if (cfg.balances.apify) balances.push(apifyBalance(cfg.balances.apify.file, nowMs));
@@ -256,6 +273,7 @@ export class Collector {
       projects,
       asks,
       subscription,
+      subscriptions,
       balances,
       upcoming,
       sourceErrors: problems.list,

@@ -32,11 +32,13 @@ const TOKEN_RE = /^\d+:[A-Za-z0-9_-]{30,}$/;
 
 /**
  * Список (token, ownerChatId) для verifyTgWebAppInitData.
- * cfgTg — из PULT_TG_* (если задан); плюс ~/.msb/bots/<id>/.env.
+ * cfgTg — из PULT_TG_* (если задан); плюс <PULT_BOTS_DIR>/<id>/.env.
+ * PULT_BOTS_ROOT — совместимый alias; по умолчанию ~/.msb/bots.
  */
 export function listTgAuthCandidates(
   cfgTg: { token: string; chatId: string } | null,
   home = process.env.HOME || homedir(),
+  env: NodeJS.ProcessEnv = process.env,
 ): TgAuthCandidate[] {
   const out: TgAuthCandidate[] = [];
   const seen = new Set<string>();
@@ -51,7 +53,7 @@ export function listTgAuthCandidates(
 
   if (cfgTg) add(cfgTg.token, cfgTg.chatId, 'pult-tg');
 
-  const botsRoot = join(home, '.msb', 'bots');
+  const botsRoot = env.PULT_BOTS_DIR || env.PULT_BOTS_ROOT || join(home, '.msb', 'bots');
   let ids: string[] = [];
   try {
     ids = readdirSync(botsRoot, { withFileTypes: true })

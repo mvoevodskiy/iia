@@ -82,6 +82,7 @@ class ReleaseTest(unittest.TestCase):
         self.assertEqual(len(list((a / 'runtime').rglob('profile.cjs'))), 1)
         self.assertFalse(any(p.name in ['.env', 'MEMORY.md', 'auth.json'] for p in (a / 'runtime').rglob('*')))
         self.assertFalse(any('/tests/' in x for x in expected))
+        self.assertFalse((a / 'checks/source/.msb/bot/vendor/deobfuscated.js').exists())
 
     def test_dirty_head_is_not_silently_exported(self):
         self.write('.msb/bot/src/main.mjs', 'changed without a commit\n')

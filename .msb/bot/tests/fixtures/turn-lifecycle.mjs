@@ -8,7 +8,7 @@ import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
 
 const scenario = process.argv[2];
-if (!['early-stop', 'status-failure', 'late-edit', 'next-turn', 'saved-session', 'empty-session', 'reset-session'].includes(scenario)) {
+if (!['early-stop', 'status-failure', 'late-edit', 'next-turn', 'saved-session', 'empty-session', 'reset-session', 'provider-roundtrip', 'provider-reset', 'provider-clear'].includes(scenario)) {
   throw new Error('Unknown lifecycle scenario');
 }
 const fixtureHome = await fs.mkdtemp(path.join(os.tmpdir(), 'msb-turn-lifecycle-'));
@@ -75,7 +75,19 @@ try {
   await fs.writeFile(stateFile, JSON.stringify({
     authMode: 'subscription', hasSubscriptionAuth: true, fixtureUnrelated: 'preserve-me',
     ...(scenario === 'saved-session' ? { ccSessionId: 'saved-session-A' } : {}),
+    ...(['provider-roundtrip', 'provider-reset', 'provider-clear'].includes(scenario) ? {
+      engine: 'cc', extAuthBypass: 'codex',
+      ccSessionId: 'ext:codex:0199a213-81c0-7800-8aa1-bbab2a035a53', sessionEpoch: 0,
+      parkedCcSessions: { claude: 'saved-claude-session' },
+    } : {}),
   }));
+  if (['provider-roundtrip', 'provider-reset', 'provider-clear'].includes(scenario)) {
+    await fs.mkdir(path.join(fixtureHome, '.codex'), { recursive: true });
+    await fs.writeFile(path.join(fixtureHome, '.codex/auth.json'), JSON.stringify({tokens:{access_token:'fixture-only'}}));
+    await fs.writeFile(path.join(path.dirname(stateFile), 'ext-providers.json'), JSON.stringify({
+      version:1, active:'codex', sessions:{codex:'0199a213-81c0-7800-8aa1-bbab2a035a53'}, models:{}, efforts:{},
+    }));
+  }
   const forbidden = (kind) => (..._args) => {
     report.forbidden.push(kind);
     throw new Error(`Forbidden fixture boundary: ${kind}`);
@@ -87,7 +99,8 @@ try {
     const number = children.length + 1;
     const child = new EventEmitter();
     child.stdin = new PassThrough(); child.stdout = new PassThrough(); child.stderr = new PassThrough();
-    const record = { number, args, prompt: '', statusMessageId: report.statusIds.at(-1) };
+    const record = { number, args, prompt: '', provider: options.env.MSB_TURN_PROVIDER, statusMessageId: report.statusIds.at(-1) };
+    const nativeId = record.provider === 'codex' ? `ext:codex:0199a213-81c0-7800-8aa1-bbab2a035a5${number}` : `new-session-B-${number}`;
     report.cli.push(record);
     report.events.push(`cli-start:${number}`);
     activeChildren++;
@@ -99,7 +112,7 @@ try {
       closed = true;
       if (mode !== 'abort') {
         if (mode === 'late-result') report.events.push(`cli-late-result:${number}`);
-        emit({ type: 'result', session_id: `new-session-B-${number}`, result: `success-${number}`, is_error: false });
+        emit({ type: 'result', session_id: nativeId, result: `success-${number}`, is_error: false });
       }
       report.events.push(`cli-close:${number}`);
       activeChildren--;
@@ -113,7 +126,8 @@ try {
     child.stdin.setEncoding('utf8');
     child.stdin.on('data', (text) => { record.prompt += text; });
     child.stdin.on('end', () => {
-      emit({ type: 'system', subtype: 'init', session_id: `new-session-B-${number}`, model: 'fixture-model' });
+      emit({ type: 'system', subtype: 'provider', provider_id: record.provider });
+      emit({ type: 'system', subtype: 'init', session_id: nativeId, model: 'fixture-model' });
       report.events.push(`cli-init:${number}`);
     });
     children.push({ close });
@@ -205,6 +219,26 @@ try {
     report.events.push('reset-acknowledged');
     children[0].close('late-result');
     await until(() => hasAnswer(1), 'late answer after reset replacing its status');
+  } else if (['provider-roundtrip', 'provider-reset', 'provider-clear'].includes(scenario)) {
+    await until(() => has('cli-init:1'), 'old provider turn before switch');
+    if (scenario === 'provider-reset' || scenario === 'provider-clear') {
+      send(scenario === 'provider-reset' ? '/newtask' : '/clear');
+      const ack = scenario === 'provider-reset' ? 'Новая сессия. Пиши задачу.' : 'Начата новая беседа. Файлы и native-история сохранены.';
+      await until(() => report.calls.some((call) => call.applied && call.text === ack), 'reset before switching');
+      report.events.push('reset-acknowledged');
+    }
+    const { setActive } = await import('../../../../overlay/bot/ext/store.mjs');
+    const { syncExtAuthGate } = await import('../../../../overlay/bot/ext/setup-bypass.mjs');
+    await setActive('claude'); await syncExtAuthGate();
+    const claudeState = JSON.parse(await fs.readFile(stateFile, 'utf8'));
+    if (claudeState.ccSessionId !== 'saved-claude-session') throw new Error('Claude session was not restored');
+    await setActive('codex'); await syncExtAuthGate();
+    const codexState = JSON.parse(await fs.readFile(stateFile, 'utf8'));
+    const expected = scenario === 'provider-roundtrip' ? 'ext:codex:0199a213-81c0-7800-8aa1-bbab2a035a53' : undefined;
+    if (codexState.ccSessionId !== expected) throw new Error('Codex session did not reflect the reset');
+    report.events.push('provider-roundtrip-completed');
+    children[0].close('late-result');
+    await until(() => hasAnswer(1), 'late answer after switching');
   } else {
     await until(() => has('cli-init:1'), 'first native session');
     if (scenario === 'late-edit') await until(() => has('progress-edit-dispatched'), 'held progress edit');
@@ -237,6 +271,9 @@ try {
   report.intervalsAfterStop = liveIntervals.size;
   report.activeChildren = activeChildren;
   report.state = JSON.parse(await fs.readFile(stateFile, 'utf8'));
+  const traceDir = path.join(path.dirname(stateFile), 'traces');
+  report.history = [];
+  for (const name of await fs.readdir(traceDir)) report.history.push(...(await fs.readFile(path.join(traceDir, name), 'utf8')).trim().split('\n').map(JSON.parse));
   console.log('LIFECYCLE_RESULT=' + JSON.stringify(report));
 } finally {
   releaseInitial(); releaseProgress();

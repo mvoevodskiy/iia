@@ -4,6 +4,7 @@
  */
 import { InlineKeyboard } from 'grammy';
 import { listSourcesFlat, loadMonitorConfig } from '../../monitor/config.mjs';
+import { sourceCallbackData } from '../../monitor/source-ref.mjs';
 import { loadMeta } from '../../monitor/store.mjs';
 import { loadState } from '../../state.mjs';
 import { escapeHtml } from '../edit.mjs';
@@ -69,7 +70,7 @@ export async function monitorSourcesScreen() {
     const lines = sources.map((s) => `• <b>${escapeHtml(s.type)}</b> ${escapeHtml(s.name)}`);
     text = `<b>🛰️ Источники</b> (${sources.length})\n\n${lines.join('\n')}\n${BLANK}`;
     for (const s of sources.slice(0, 20)) {
-      kb.text(`🗑 ${s.type}:${s.name}`.slice(0, 40), `mon:src-del:${s.type}:${encodeURIComponent(s.id)}`).row();
+      kb.text(`🗑 ${s.type}:${s.name}`.slice(0, 40), sourceCallbackData(s.type, s.id)).row();
     }
   }
   kb.text('+ Добавить источник', 'mon:add-hint').row();

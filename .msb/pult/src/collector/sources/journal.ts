@@ -4,13 +4,15 @@
 // state.json — из него берём ТОЛЬКО rateLimitInfo (остальное — внутреннее состояние платформы).
 
 import { join } from 'node:path';
+import { activeProvider } from './provider.ts';
 import type { Run, RunStatus } from '../../shared/types.ts';
 import { clip } from '../../shared/format.ts';
 import { isoMs, iso, type Problems, readJsonFile, readJsonl, scrub, SourceFailure, utcDay } from '../util.ts';
 
-export interface TraceRec { ts: string; query?: string; toolCalls?: number; elapsedMs?: number }
-export interface TranscriptRec { ts: string; role?: string; text?: string }
-export interface DiaryRec { ts: string; kind?: string; summary?: string }
+export interface HistoryIdentity { turnId?: string; providerId?: string | null; status?: string }
+export interface TraceRec extends HistoryIdentity { ts: string; query?: string; toolCalls?: number; elapsedMs?: number }
+export interface TranscriptRec extends HistoryIdentity { ts: string; role?: string; text?: string }
+export interface DiaryRec extends HistoryIdentity { ts: string; kind?: string; summary?: string }
 export interface RunRec {
   ts: string;
   actionId?: string;
@@ -72,6 +74,7 @@ export function readBotData(dir: string, nowMs: number, problems: Problems, botN
     return data.filter((a): a is ActionRec => !!a && typeof a === 'object' && typeof a.id === 'string');
   }, []);
   const rate = problems.guard(src('окно подписки'), () => {
+    if (activeProvider(dir) !== 'claude') return null;
     const data = readJsonFile(join(dir, 'state.json')) as { rateLimitInfo?: unknown } | null;
     const r = data?.rateLimitInfo;
     return r && typeof r === 'object' ? (r as RateLimitInfo) : null;

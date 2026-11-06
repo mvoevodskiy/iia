@@ -88,9 +88,18 @@ function setStatus(text) {
 }
 
 async function tryMiniAppLogin() {
+  if (!document.body.classList.contains('auth-page')) {
+    // Telegram adds its launch parameters even when the session already exists.
+    // They are not an app route: drop them before the hash router sees them.
+    if (/^#tgWebApp(?:Data|Version|Platform|ThemeParams)=/.test(location.hash)) {
+      try { sessionStorage.removeItem('__pult_tg_init'); } catch { /* private mode */ }
+      try { history.replaceState(history.state, '', `${location.pathname}${location.search}#/`); }
+      catch { /* the router still treats the launch hash as overview */ }
+    }
+    return;
+  }
   const initData = readInitData();
   if (!initData) return;
-  if (!document.body.classList.contains('auth-page')) return;
   setStatus('Вход через Telegram…');
   try {
     const r = await fetch('/api/tg-auth', {

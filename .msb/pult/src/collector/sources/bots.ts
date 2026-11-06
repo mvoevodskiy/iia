@@ -14,17 +14,20 @@ const DAY = 86_400_000;
 
 // ---- Процессы ----
 
-/**
- * Агентский процесс — сам исполняемый файл claude (или node …/claude-code/cli.js). Просто «содержит claude»
- * не годится: у shell-обёрток агента в аргументах путь ~/.claude/shell-snapshots.
- */
-export function isAgentCmdline(raw: string): boolean {
+/** Only executable identities, never a provider name appearing in a shell prompt/path argument. */
+function agentCommand(raw: string): { provider: string; wrapper: boolean } | null {
   const args = raw.split('\0').filter(Boolean);
-  if (!args.length) return false;
+  if (!args.length) return null;
   const base = (s: string) => s.slice(s.lastIndexOf('/') + 1);
-  if (/^claude(\.exe)?$/i.test(base(args[0]))) return true;
-  return /^node(js)?$/.test(base(args[0])) && args.length > 1 && /(^|\/)claude(-code)?(\/|$)|claude-code\/cli\.m?js$/.test(args[1]);
+  const executable = base(args[0]).replace(/\.exe$/i, '').toLowerCase();
+  if (['claude', 'codex', 'qwen', 'cursor-agent'].includes(executable)) return { provider: executable, wrapper: false };
+  if (!/^node(js)?$/.test(executable) || !args[1]) return null;
+  if (/(^|\/)claude(-code)?(\/|$)|claude-code\/cli\.m?js$/.test(args[1])) return { provider: 'claude', wrapper: true };
+  if (/(^|\/)@openai\/codex\/bin\/codex\.js$/.test(args[1])) return { provider: 'codex', wrapper: true };
+  if (/(^|\/)@qwen-code\/qwen-code\/bundle\/cli\.js$/.test(args[1])) return { provider: 'qwen', wrapper: true };
+  return null;
 }
+export function isAgentCmdline(raw: string): boolean { return agentCommand(raw) !== null; }
 
 /** Поле 22 /proc/<pid>/stat — время старта в тиках с загрузки. Имя процесса в скобках может содержать пробелы. */
 export function procStartTicks(stat: string): number | null {
@@ -37,15 +40,19 @@ export interface AgentProc { pid: number; startMs: number }
 
 export function agentProcesses(opts: { procRoot: string; cgroupRoot: string; controlGroup: string; bootMs: number; clkTck: number }): AgentProc[] {
   const pids = readFileSync(join(opts.cgroupRoot, opts.controlGroup, 'cgroup.procs'), 'utf8').split('\n').map(Number).filter(n => n > 0);
-  const out: AgentProc[] = [];
+  const out: (AgentProc & { provider: string; wrapper: boolean })[] = [];
   for (const pid of pids) {
     try {
-      if (!isAgentCmdline(readFileSync(join(opts.procRoot, String(pid), 'cmdline'), 'utf8'))) continue;
+      const command = agentCommand(readFileSync(join(opts.procRoot, String(pid), 'cmdline'), 'utf8'));
+      if (!command) continue;
       const ticks = procStartTicks(readFileSync(join(opts.procRoot, String(pid), 'stat'), 'utf8'));
-      if (ticks !== null) out.push({ pid, startMs: opts.bootMs + (ticks / opts.clkTck) * 1000 });
+      if (ticks !== null) out.push({ pid, startMs: opts.bootMs + (ticks / opts.clkTck) * 1000, ...command });
     } catch { /* процесс успел завершиться */ }
   }
-  return out;
+  // The npm Codex launcher remains alive beside its native worker; it is not a helper.
+  const nativeCodex = out.some(p => p.provider === 'codex' && !p.wrapper);
+  return out.filter(p => !(nativeCodex && p.provider === 'codex' && p.wrapper))
+    .map(({ pid, startMs }) => ({ pid, startMs }));
 }
 
 // ---- Переписка ----
@@ -56,6 +63,11 @@ const firstTextLine = (s: string) => s.split('\n').map(l => l.trim()).find(Boole
  *  Последнее, а не первое: ход, оборванный без ответа (лимит, сбой), оставляет «висящее» сообщение,
  *  а работает бот уже над следующим. */
 export function pendingRequest(transcripts: TranscriptRec[]): { atMs: number; text: string } | null {
+  const latestUser = transcripts.filter(r => r.role === 'user').at(-1);
+  if (latestUser?.turnId) {
+    if (transcripts.some(r => r.role === 'assistant' && r.turnId === latestUser.turnId)) return null;
+    return { atMs: Date.parse(latestUser.ts), text: clip(scrub(firstTextLine(latestUser.text ?? '')), 120) };
+  }
   let lastAnswer = -1;
   transcripts.forEach((r, i) => {
     if (r.role === 'assistant') lastAnswer = i;
@@ -89,21 +101,25 @@ export function lastResult(diary: DiaryRec[], traces: TraceRec[], transcripts: T
   const at = Date.parse(reply.ts);
   let best: TraceRec | null = null;
   for (const t of traces) {
+    if (reply.turnId ? t.turnId !== reply.turnId : t.turnId) continue;
     const d = Math.abs(Date.parse(t.ts) - at);
-    if (d <= MIN && (!best || d < Math.abs(Date.parse(best.ts) - at))) best = t;
+    if ((reply.turnId || d <= MIN) && (!best || d < Math.abs(Date.parse(best.ts) - at))) best = t;
   }
   let durationMin = best && typeof best.elapsedMs === 'number' ? best.elapsedMs / MIN : null;
   if (durationMin === null) {
     // запасной путь: от первого сообщения пользователя до этого ответа в переписке
-    const idx = transcripts.findIndex(r => r.role === 'assistant' && Math.abs(Date.parse(r.ts) - at) <= MIN);
-    if (idx > 0) {
+    const idx = transcripts.findIndex(r => r.role === 'assistant' && (reply.turnId ? r.turnId === reply.turnId : !r.turnId && Math.abs(Date.parse(r.ts) - at) <= MIN));
+    if (reply.turnId && idx >= 0) {
+      const start = transcripts.find(r => r.role === 'user' && r.turnId === reply.turnId);
+      if (start) durationMin = Math.max(0, Date.parse(transcripts[idx].ts) - Date.parse(start.ts)) / MIN;
+    } else if (idx > 0) {
       let start = idx;
       while (start > 0 && transcripts[start - 1].role === 'user') start--;
       if (start < idx) durationMin = (Date.parse(transcripts[idx].ts) - Date.parse(transcripts[start].ts)) / MIN;
     }
   }
   // в переписке тот же ответ целиком, а в дневнике — обрезок; берём полный, если он нашёлся
-  const full = transcripts.find(r => r.role === 'assistant' && Math.abs(Date.parse(r.ts) - at) <= MIN && r.text);
+  const full = transcripts.find(r => r.role === 'assistant' && (reply.turnId ? r.turnId === reply.turnId : !r.turnId && Math.abs(Date.parse(r.ts) - at) <= MIN) && r.text);
   return {
     at: iso(at),
     text: cleanReply(full?.text ?? reply.summary ?? ''),

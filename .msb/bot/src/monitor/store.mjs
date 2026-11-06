@@ -2,6 +2,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { monitorDir } from './config.mjs';
+import { withFileLock } from '../../shared/file-lock.mjs';
 
 function itemsPath(env) {
   return path.join(monitorDir(env), 'items.jsonl');
@@ -26,16 +27,39 @@ export async function loadMeta(env = process.env) {
   }
 }
 
-export async function saveMeta(meta, env = process.env) {
+function serializeMeta(env, operation) {
+  return withFileLock(metaPath(env), operation);
+}
+
+async function writeMeta(meta, env) {
   await fs.mkdir(monitorDir(env), { recursive: true });
   const file = metaPath(env);
-  const tmp = `${file}.tmp`;
+  const tmp = `${file}.tmp.${process.pid}`;
   await fs.writeFile(tmp, `${JSON.stringify(meta, null, 2)}\n`);
   await fs.rename(tmp, file);
 }
 
+export function saveMeta(meta, env = process.env) {
+  return serializeMeta(env, () => writeMeta(meta, env));
+}
+
+// Hold the per-profile queue through the read, action and write. Mutators must
+// not call saveMeta/updateMeta themselves; a failed action never saves the mark.
+export function updateMeta(mutator, env = process.env) {
+  return serializeMeta(env, async () => {
+    const meta = await loadMeta(env);
+    const result = await mutator(meta);
+    await writeMeta(meta, env);
+    return result;
+  });
+}
+
 export async function appendItems(items, env = process.env) {
   if (!items.length) return 0;
+  return withFileLock(itemsPath(env), async () => appendItemsLocked(items, env));
+}
+
+async function appendItemsLocked(items, env) {
   await fs.mkdir(monitorDir(env), { recursive: true });
   const seen = await loadRecentIds(5000, env);
   let added = 0;
@@ -76,12 +100,14 @@ export async function listRecentItems({ limit = 50, sinceHours = 48 } = {}, env 
   try {
     const raw = await fs.readFile(itemsPath(env), 'utf8');
     const lines = raw.trim().split('\n');
-    for (let i = lines.length - 1; i >= 0 && out.length < limit; i--) {
+    for (let i = lines.length - 1; i >= 0; i--) {
       try {
         const o = JSON.parse(lines[i]);
-        const t = Date.parse(o.publishedAt || o.savedAt || 0);
-        if (t && t < since) continue;
-        out.push(o);
+        const published = Date.parse(o.publishedAt);
+        const saved = Date.parse(o.savedAt);
+        const t = Number.isFinite(published) ? published : saved;
+        if (!Number.isFinite(t) || t < since) continue;
+        out.push({ item: o, timestamp: t, position: i });
       } catch {
         /* skip */
       }
@@ -89,5 +115,6 @@ export async function listRecentItems({ limit = 50, sinceHours = 48 } = {}, env 
   } catch {
     /* empty */
   }
-  return out;
+  out.sort((a, b) => b.timestamp - a.timestamp || b.position - a.position);
+  return out.slice(0, Math.max(0, limit)).map((entry) => entry.item);
 }

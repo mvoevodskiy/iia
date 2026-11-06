@@ -83,9 +83,9 @@ test('HTTP: Mini App — вход по initData без пароля; чужой 
     body: JSON.stringify({ initData }),
   });
   assert.equal(ok.status, 204);
-  const sid = cookieFrom(ok, 'pult_sid');
+  const sid = cookieFrom(ok, 'pult_tg_sid');
   assert.ok(sid);
-  assert.equal((await s.req('GET', '/api/snapshot', { headers: { cookie: `pult_sid=${sid}` } })).status, 200);
+  assert.equal((await s.req('GET', '/api/snapshot', { headers: { cookie: `pult_tg_sid=${sid}` } })).status, 200);
 
   const stranger = signTgInit(TG_TOKEN, {
     auth_date: String(authDate),
@@ -117,7 +117,10 @@ test('HTTP: одноразовая ссылка ?tg= — сгорает и бе�
   const withSession = await s.req('GET', `/?tg=${encodeURIComponent(ticket2)}`, {
     headers: { cookie: `pult_sid=${sid}` },
   });
-  assert.ok(withSession.status === 200 || withSession.status === 302);
+  assert.equal(withSession.status, 302, 'remove the used ticket from the address even with a valid session');
+  assert.equal(withSession.headers.location, '/');
+  assert.equal(withSession.headers['set-cookie'], undefined, 'keep the existing session');
+  assert.equal((await s.req('GET', '/', { headers: { cookie: `pult_sid=${sid}` } })).status, 200);
   assert.equal(acceptTgLoginTicket(s.svc.db, ticket2, s.clock.t), false, 'при живой сессии билет тоже сгорел');
 
   // 3) Без сессии этот билет уже не пускает.
@@ -375,4 +378,39 @@ test('HTTP: нет интерфейса — понятная страница, �
   const r = await s.req('GET', '/', { headers: { cookie: `pult_sid=${sid}` } });
   assert.equal(r.status, 503);
   assert.match(r.body, /Интерфейс панели не найден/);
+});
+
+// Telegram Web embeds Pult cross-site: the signed login must survive its redirect.
+// https://developer.mozilla.org/en-US/docs/Web/Privacy/Guides/Third-party_cookies/Partitioned_cookies
+test('HTTP: secure Mini App session is partitioned; normal login and CSRF stay protected', async t => {
+  const s = await start(t, { PULT_COOKIE_SECURE: '1' });
+  const initData = signTgInit(TG_TOKEN, {
+    auth_date: String(Math.floor(s.clock.t / 1000)),
+    user: JSON.stringify({ id: 42, first_name: 'Owner' }),
+  });
+  const ok = await s.req('POST', '/api/tg-auth', {
+    headers: { origin: s.origin, 'content-type': 'application/json' },
+    body: JSON.stringify({ initData }),
+  });
+  assert.equal(ok.status, 204);
+  const setCookie = (ok.headers['set-cookie'] as string[])[0];
+  assert.match(setCookie, /^pult_tg_sid=[A-Za-z0-9_-]{43}; Path=\/; Max-Age=14400; HttpOnly; SameSite=None; Secure; Partitioned$/);
+  const sid = cookieFrom(ok, 'pult_tg_sid')!;
+  assert.equal((await s.req('GET', '/api/snapshot', { headers: { cookie: `pult_tg_sid=${sid}` } })).status, 200);
+  const ordinary = await enroll(s);
+  const headers = { cookie: `pult_tg_sid=${sid}; pult_sid=${ordinary.sid}` };
+  assert.equal((await s.req('GET', '/', { headers })).status, 200);
+  assert.doesNotMatch((await s.req('GET', '/', { headers })).body, /auth-form/);
+  assert.equal((await s.req('GET', '/api/snapshot', { headers })).status, 200);
+  assert.equal((await s.req('POST', '/logout', { headers: { ...headers, origin: 'https://evil.example' } })).status, 403);
+  assert.equal((await s.req('GET', '/api/snapshot', { headers })).status, 200);
+  const out = await s.req('POST', '/logout', { headers: { ...headers, origin: s.origin } });
+  assert.equal(out.status, 302);
+  assert.ok((out.headers['set-cookie'] as string[]).some(c => c === 'pult_tg_sid=; Path=/; Max-Age=0; HttpOnly; SameSite=None; Secure; Partitioned'));
+  assert.equal((await s.req('GET', '/api/snapshot', { headers })).status, 401);
+  assert.equal((await s.req('GET', '/api/snapshot', { headers: { cookie: `pult_sid=${ordinary.sid}` } })).status, 401);
+  s.clock.t += 30_000;
+  const login = await s.post('/login', { password: PASSWORD, code: totpAt(ordinary.secret, s.clock.t) });
+  assert.match((login.headers['set-cookie'] as string[])[0], /; HttpOnly; SameSite=Lax; Secure$/);
+  assert.doesNotMatch((login.headers['set-cookie'] as string[])[0], /Partitioned/);
 });

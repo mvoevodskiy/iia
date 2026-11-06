@@ -33,3 +33,13 @@ HOME, bot ID и root разрешаются при вызове, default вып�
 Проверки: [runtime-profile](../tests/runtime-profile.test.mjs),
 [profile-ui](../tests/profile-ui.test.mjs). Это совместимость путей одного кода,
 а не миграция данных, auth или сервисов между `.msb` и `.iia`.
+
+## Первый session ID
+
+[session-starts.mjs](session-starts.mjs) — чистые операции резервации первого
+CLI-хода для core и overlay. `pendingCcSessionStarts` — внутренний per-provider
+token, не history metadata или авторизация. Переключение сохраняет token;
+`/newtask`, `/clear` и существующие reset-действия отменяют только текущий.
+Поздний успешный ID допускается только для своего token/provider и пустого
+слота; обычный fence существующих IDs не ослабляется. Маршрут и тесты —
+[исполнение](../src/agent/README.md#общий-ход).

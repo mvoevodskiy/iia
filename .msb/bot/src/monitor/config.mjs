@@ -2,6 +2,8 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
 import { msbRoot } from '../paths.mjs';
+import { withFileLock } from '../../shared/file-lock.mjs';
+import { sourceToken } from './source-ref.mjs';
 
 export function monitorDir(env = process.env) {
   return path.join(msbRoot(env), 'monitor');
@@ -49,13 +51,27 @@ export async function loadMonitorConfig(env = process.env) {
   }
 }
 
-export async function saveMonitorConfig(cfg, env = process.env) {
+async function writeMonitorConfig(cfg, env) {
   const dir = monitorDir(env);
   await fs.mkdir(dir, { recursive: true });
   const file = configPath(env);
   const tmp = `${file}.tmp.${process.pid}`;
   await fs.writeFile(tmp, `${JSON.stringify(cfg, null, 2)}\n`);
   await fs.rename(tmp, file);
+}
+
+export function saveMonitorConfig(cfg, env = process.env) {
+  return withFileLock(configPath(env), () => writeMonitorConfig(cfg, env));
+}
+
+// Network requests must stay outside this short read/modify/write transaction.
+export function updateMonitorConfig(change, env = process.env) {
+  return withFileLock(configPath(env), async () => {
+    const cfg = await loadMonitorConfig(env);
+    const result = await change(cfg);
+    await writeMonitorConfig(cfg, env);
+    return result;
+  });
 }
 
 /** Разбор ссылки / @ника → тип источника. */
@@ -106,103 +122,102 @@ export async function addSourceFromInput(raw, env = process.env) {
   const parsed = classifySourceInput(raw);
   if (!parsed) return { ok: false, error: 'Не понял источник. Пришли URL или @ник (YouTube, GitHub, X, Telegram, RSS).' };
 
-  const cfg = await loadMonitorConfig(env);
   const now = new Date().toISOString();
-
-  if (parsed.type === 'youtube') {
-    const key = parsed.channelId || `handle:${parsed.handle}`;
-    const exists = cfg.youtube.channels.find(
-      (c) => c.channelId === key || c.handle === parsed.handle || c.name === parsed.name,
-    );
-    if (exists) {
-      exists.enabled = true;
-      await saveMonitorConfig(cfg, env);
-      return { ok: true, added: false, type: 'youtube', name: exists.name };
+  return updateMonitorConfig(async (cfg) => {
+    if (parsed.type === 'youtube') {
+      const key = parsed.channelId || `handle:${parsed.handle}`;
+      const exists = cfg.youtube.channels.find(
+        (c) => c.channelId === key || c.handle === parsed.handle || c.name === parsed.name,
+      );
+      if (exists) {
+        exists.enabled = true;
+        return { ok: true, added: false, type: 'youtube', name: exists.name };
+      }
+      cfg.youtube.channels.push({
+        channelId: parsed.channelId || null,
+        handle: parsed.handle || null,
+        name: parsed.name,
+        enabled: true,
+        addedAt: now,
+      });
+      cfg.youtube.enabled = true;
+      return { ok: true, added: true, type: 'youtube', name: parsed.name };
     }
-    cfg.youtube.channels.push({
-      channelId: parsed.channelId || null,
-      handle: parsed.handle || null,
-      name: parsed.name,
-      enabled: true,
-      addedAt: now,
-    });
-    cfg.youtube.enabled = true;
-    await saveMonitorConfig(cfg, env);
-    return { ok: true, added: true, type: 'youtube', name: parsed.name };
-  }
 
-  if (parsed.type === 'twitter') {
-    const u = parsed.username.toLowerCase();
-    if (cfg.twitter.accounts.some((a) => a.username.toLowerCase() === u)) {
-      return { ok: true, added: false, type: 'twitter', name: parsed.name };
+    if (parsed.type === 'twitter') {
+      const u = parsed.username.toLowerCase();
+      if (cfg.twitter.accounts.some((a) => a.username.toLowerCase() === u)) {
+        return { ok: true, added: false, type: 'twitter', name: parsed.name };
+      }
+      cfg.twitter.accounts.push({ username: parsed.username, name: parsed.name, enabled: true, addedAt: now });
+      cfg.twitter.enabled = true;
+      return { ok: true, added: true, type: 'twitter', name: parsed.name };
     }
-    cfg.twitter.accounts.push({ username: parsed.username, name: parsed.name, enabled: true, addedAt: now });
-    cfg.twitter.enabled = true;
-    await saveMonitorConfig(cfg, env);
-    return { ok: true, added: true, type: 'twitter', name: parsed.name };
-  }
 
-  if (parsed.type === 'github') {
-    const full = `${parsed.owner}/${parsed.repo}`;
-    if (cfg.github.repos.some((r) => `${r.owner}/${r.repo}` === full)) {
-      return { ok: true, added: false, type: 'github', name: full };
+    if (parsed.type === 'github') {
+      const full = `${parsed.owner}/${parsed.repo}`;
+      if (cfg.github.repos.some((r) => `${r.owner}/${r.repo}` === full)) {
+        return { ok: true, added: false, type: 'github', name: full };
+      }
+      cfg.github.repos.push({ owner: parsed.owner, repo: parsed.repo, name: full, enabled: true, addedAt: now });
+      cfg.github.enabled = true;
+      return { ok: true, added: true, type: 'github', name: full };
     }
-    cfg.github.repos.push({ owner: parsed.owner, repo: parsed.repo, name: full, enabled: true, addedAt: now });
-    cfg.github.enabled = true;
-    await saveMonitorConfig(cfg, env);
-    return { ok: true, added: true, type: 'github', name: full };
-  }
 
-  if (parsed.type === 'telegram') {
-    const u = parsed.username.toLowerCase();
-    if (cfg.telegram.channels.some((c) => c.username.toLowerCase() === u)) {
-      return { ok: true, added: false, type: 'telegram', name: parsed.name };
+    if (parsed.type === 'telegram') {
+      const u = parsed.username.toLowerCase();
+      if (cfg.telegram.channels.some((c) => c.username.toLowerCase() === u)) {
+        return { ok: true, added: false, type: 'telegram', name: parsed.name };
+      }
+      cfg.telegram.channels.push({ username: parsed.username, name: parsed.name, enabled: true, addedAt: now });
+      cfg.telegram.enabled = true;
+      return { ok: true, added: true, type: 'telegram', name: parsed.name };
     }
-    cfg.telegram.channels.push({ username: parsed.username, name: parsed.name, enabled: true, addedAt: now });
-    cfg.telegram.enabled = true;
-    await saveMonitorConfig(cfg, env);
-    return { ok: true, added: true, type: 'telegram', name: parsed.name };
-  }
 
-  if (parsed.type === 'rss') {
-    if (cfg.rss.feeds.some((f) => f.url === parsed.url)) {
-      return { ok: true, added: false, type: 'rss', name: parsed.name };
+    if (parsed.type === 'rss') {
+      if (cfg.rss.feeds.some((f) => f.url === parsed.url)) {
+        return { ok: true, added: false, type: 'rss', name: parsed.name };
+      }
+      cfg.rss.feeds.push({ url: parsed.url, name: parsed.name, enabled: true, addedAt: now });
+      cfg.rss.enabled = true;
+      return { ok: true, added: true, type: 'rss', name: parsed.name };
     }
-    cfg.rss.feeds.push({ url: parsed.url, name: parsed.name, enabled: true, addedAt: now });
-    cfg.rss.enabled = true;
-    await saveMonitorConfig(cfg, env);
-    return { ok: true, added: true, type: 'rss', name: parsed.name };
-  }
 
-  return { ok: false, error: 'Неизвестный тип' };
+    return { ok: false, error: 'Неизвестный тип' };
+  }, env);
 }
 
-export async function removeSource(type, id, env = process.env) {
-  const cfg = await loadMonitorConfig(env);
-  const mark = (arr, pred) => {
-    const i = arr.findIndex(pred);
-    if (i >= 0) arr.splice(i, 1);
-    return i >= 0;
-  };
-  let ok = false;
-  if (type === 'youtube') {
-    ok = mark(cfg.youtube.channels, (c) => c.channelId === id || c.handle === id || c.name === id);
-    if (!cfg.youtube.channels.length) cfg.youtube.enabled = false;
-  } else if (type === 'twitter') {
-    ok = mark(cfg.twitter.accounts, (a) => a.username === id);
-    if (!cfg.twitter.accounts.length) cfg.twitter.enabled = false;
-  } else if (type === 'github') {
-    ok = mark(cfg.github.repos, (r) => `${r.owner}/${r.repo}` === id || r.name === id);
-    if (!cfg.github.repos.length) cfg.github.enabled = false;
-  } else if (type === 'telegram') {
-    ok = mark(cfg.telegram.channels, (c) => c.username === id);
-    if (!cfg.telegram.channels.length) cfg.telegram.enabled = false;
-  } else if (type === 'rss') {
-    ok = mark(cfg.rss.feeds, (f) => f.url === id || f.name === id);
-    if (!cfg.rss.feeds.length) cfg.rss.enabled = false;
-  }
-  if (ok) await saveMonitorConfig(cfg, env);
-  return ok;
+export async function removeSource(type, id, env = process.env, { byToken = false } = {}) {
+  return updateMonitorConfig((cfg) => {
+    const mark = (arr, pred) => {
+      const matches = arr.flatMap((entry, index) => pred(entry) ? [index] : []);
+      // Old ID callbacks keep their prior first-match behavior. Token callbacks
+      // must resolve uniquely so a stale button cannot remove a different source.
+      if (!matches.length || (byToken && matches.length !== 1)) return false;
+      arr.splice(matches[0], 1);
+      return true;
+    };
+    const tokenMatches = (aliases) => aliases.filter((alias) => typeof alias === 'string' && alias)
+      .some((alias) => sourceToken(type, alias) === id);
+    let ok = false;
+    if (type === 'youtube') {
+      ok = mark(cfg.youtube.channels, (c) => byToken ? tokenMatches([c.channelId, c.handle, c.name]) : c.channelId === id || c.handle === id || c.name === id);
+      if (!cfg.youtube.channels.length) cfg.youtube.enabled = false;
+    } else if (type === 'twitter') {
+      ok = mark(cfg.twitter.accounts, (a) => byToken ? tokenMatches([a.username]) : a.username === id);
+      if (!cfg.twitter.accounts.length) cfg.twitter.enabled = false;
+    } else if (type === 'github') {
+      ok = mark(cfg.github.repos, (r) => byToken ? tokenMatches([`${r.owner}/${r.repo}`]) : `${r.owner}/${r.repo}` === id || r.name === id);
+      if (!cfg.github.repos.length) cfg.github.enabled = false;
+    } else if (type === 'telegram') {
+      ok = mark(cfg.telegram.channels, (c) => byToken ? tokenMatches([c.username]) : c.username === id);
+      if (!cfg.telegram.channels.length) cfg.telegram.enabled = false;
+    } else if (type === 'rss') {
+      ok = mark(cfg.rss.feeds, (f) => byToken ? tokenMatches([f.url]) : f.url === id || f.name === id);
+      if (!cfg.rss.feeds.length) cfg.rss.enabled = false;
+    }
+    return ok;
+  }, env);
 }
 
 export function listSourcesFlat(cfg) {

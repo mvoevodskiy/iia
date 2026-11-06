@@ -16,6 +16,7 @@ const PROMPT_FILE_THRESHOLD = 40 * 1024;
  * @typedef {object} ClaudeTurnOptions
  * @property {string} prompt
  * @property {string} [sessionId]
+ * @property {string} [providerId]
  * @property {string} [model]
  * @property {string} [effort]
  * @property {string} [permissionMode]
@@ -26,6 +27,7 @@ const PROMPT_FILE_THRESHOLD = 40 * 1024;
  * @property {string} [cwd]
  * @property {(ev: object) => void} [onEvent]
  * @property {boolean} [autonomy]
+ * @property {number} [maxTurns]
  */
 
 /**
@@ -34,7 +36,8 @@ const PROMPT_FILE_THRESHOLD = 40 * 1024;
 export async function runClaudeTurn(opts) {
   const cwd = opts.cwd || workspaceDir();
   const permissionMode = opts.permissionMode || 'bypassPermissions';
-  const maxTurns = opts.autonomy ? 50 : DEFAULT_MAX_TURNS;
+  const maxTurns = Number.isInteger(opts.maxTurns) && opts.maxTurns > 0
+    ? opts.maxTurns : (opts.autonomy ? 50 : DEFAULT_MAX_TURNS);
 
   const allowed =
     opts.allowedTools?.length > 0
@@ -111,6 +114,7 @@ export async function runClaudeTurn(opts) {
         cwd,
         env: {
           ...process.env,
+          MSB_TURN_PROVIDER: opts.providerId || undefined,
           CI: '1',
           CLAUDE_CODE_OAUTH_TOKEN: process.env.CLAUDE_CODE_OAUTH_TOKEN,
           CLAUDE_CODE_AUTO_COMPACT_WINDOW: process.env.CLAUDE_CODE_AUTO_COMPACT_WINDOW || '200000',
@@ -170,6 +174,7 @@ export async function runClaudeTurn(opts) {
     let sessionId = opts.sessionId || '';
     let text = '';
     let model;
+    let providerId = null;
     let subtype;
     let isError = false;
     let inputTokens = 0;
@@ -195,7 +200,9 @@ export async function runClaudeTurn(opts) {
         opts.onEvent?.(ev);
         switch (ev.type) {
           case 'system':
+            if (['claude', 'codex', 'cursor', 'qwen'].includes(ev.provider_id)) providerId = ev.provider_id;
             if (ev.subtype === 'init') {
+              if (!providerId && ev.apiKeySource !== 'ext') providerId = 'claude';
               if (ev.session_id) sessionId = ev.session_id;
               if (ev.model) model = ev.model;
             }
@@ -252,6 +259,7 @@ export async function runClaudeTurn(opts) {
         sessionId,
         text: text.trim(),
         model,
+        providerId,
         subtype,
         isError: isError || code !== 0,
         exitCode: code,

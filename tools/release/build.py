@@ -63,7 +63,7 @@ def build(repo, ref, output):
     files, sources, tooling, seen = [], [], [], set()
     for source, mode, kind, oid in tracked(repo, commit):
         target = runtime_target(source)
-        test_source = source.startswith(CHECKS) or source.startswith('tools/release/tests/') or source == '.msb/bot/vendor/deobfuscated.js'
+        test_source = source.startswith(CHECKS) or source.startswith('tools/release/tests/')
         shared_link = source == 'overlay/bot/shared'
         tool_source = source.startswith('tools/release/') and source.endswith(('.py', '.mjs')) and '/tests/' not in source
         if not (target or test_source or shared_link or tool_source):

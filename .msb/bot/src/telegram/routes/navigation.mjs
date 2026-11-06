@@ -1,3 +1,4 @@
+import { invalidateFirstSession } from '../../../shared/session-starts.mjs';
 /**
  * Главное меню, навигация и поздние plan/misc callbacks.
  * Навигация: [Telegram](../README.md).
@@ -27,6 +28,7 @@ export async function handleNavigationRoute({ data, state, show, pending, chatId
   }
   if (data === 'menu:newtask') {
     await updateState((s) => {
+      invalidateFirstSession(s);
       delete s.ccSessionId;
       s.sessionEpoch = (s.sessionEpoch || 0) + 1;
       return s;

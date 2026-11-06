@@ -1,3 +1,4 @@
+import { invalidateFirstSession } from '../../shared/session-starts.mjs';
 import { updateState } from '../state.mjs';
 
 export const MODEL_MAP = {
@@ -13,6 +14,7 @@ export async function applyModelFamily(family) {
   await updateState((s) => {
     s.ccModel = family;
     s.model = model;
+    invalidateFirstSession(s);
     delete s.ccSessionId;
     return s;
   });
@@ -36,6 +38,7 @@ export async function applyPermMode(value) {
   await updateState((s) => {
     s.permissionMode = value;
     s.permMode = value;
+    invalidateFirstSession(s);
     delete s.ccSessionId;
     return s;
   });

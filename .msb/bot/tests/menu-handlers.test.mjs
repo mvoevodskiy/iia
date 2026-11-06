@@ -6,59 +6,66 @@ import path from 'node:path';
 import { createBot } from '../src/telegram/bot.mjs';
 import { saveState, loadState } from '../src/state.mjs';
 import { readEnvMap, setEnvKey, maskValue } from '../src/env/store.mjs';
-import { connScreen, envScreen, mcpScreen, skillsScreen, limitScreen, monitorSettingsScreen, monitorDigestScreen } from '../src/telegram/screens.mjs';
+import { connScreen, envScreen, mcpScreen, skillsScreen, limitScreen, settingsScreen, monitorSettingsScreen, monitorDigestScreen } from '../src/telegram/screens.mjs';
 import { saveMonitorConfig, defaultConfig } from '../src/monitor/config.mjs';
 import { appendItems } from '../src/monitor/store.mjs';
 import { maybeSendDigest } from '../src/monitor/digest.mjs';
+import { autonomyDir } from '../src/paths.mjs';
+import { trySessionOperation } from '../src/agent/session-operation.mjs';
+import { presentationAwareRetry } from '../src/telegram/presentation-api.mjs';
 import { installUpdateHook } from '../../../overlay/bot/ext/install.mjs';
 
 async function fixture(t, runTurn = async () => ({ ok: true, text: 'fixture' }), { overlay = true } = {}) {
   const home = await fs.mkdtemp(path.join(os.tmpdir(), 'msb-menu-'));
   const previous = { ...process.env };
+  let bot;
   process.env.HOME = home; process.env.MSB_BOT_ID = 'default'; process.env.ADMIN_ID = '42';
   process.env.MSB_WORKSPACE_DIR = home;
   delete process.env.JARVIS_CC_ONLY;
   t.after(async () => {
+    await bot?.stop();
     for (const key of Object.keys(process.env)) if (!(key in previous)) delete process.env[key];
     Object.assign(process.env, previous);
     await fs.rm(home, { recursive: true, force: true });
   });
-  const messages = [], edits = [], deleted = [];
+  const messages = [], edits = [], deleted = [], messageOptions = [], typingSignals = [], editSignals = [], replySignals = [];
   class Harness {
     handlers = new Map(); commands = new Map(); middleware = [];
     async start() {}
     async stop() {}
     api = {
-      config: { use() {} }, setMyCommands: async () => true, sendChatAction: async () => true,
-      sendMessage: async (_chat, text) => { messages.push(text); return { message_id: messages.length }; },
-      editMessageText: async (_chat, _id, text) => { edits.push(text); },
+      config: { use() {} }, setMyCommands: async () => true,
+      sendChatAction: async (_chat, _action, _options, signal) => { typingSignals.push(signal); return true; },
+      sendMessage: async (_chat, text, opts, signal) => { messages.push(text); messageOptions.push(opts); replySignals.push(signal); return { message_id: messages.length }; },
+      editMessageText: async (_chat, _id, text, _options, signal) => { edits.push(text); editSignals.push(signal); },
       answerCallbackQuery: async () => {},
       deleteMessage: async (_chat, id) => { deleted.push(id); },
     };
     use(fn) { this.middleware.push(fn); }
     command(name, fn) { this.commands.set(name, fn); }
-    on(name, fn) { this.handlers.set(name, fn); }
+    on(name, fn) { for (const event of Array.isArray(name) ? name : [name]) this.handlers.set(event, fn); }
     async handleUpdate(update) {
       const event = update.callback_query || update.message;
       const ctx = { from: event.from, chat: event.message?.chat || event.chat, message: update.message,
         callbackQuery: update.callback_query, api: this.api,
-        reply: (text) => this.api.sendMessage(42, text), answerCallbackQuery: async () => {} };
+        reply: (text, opts, signal) => this.api.sendMessage(42, text, opts, signal), answerCallbackQuery: async () => {} };
       const text = ctx.message?.text;
+      const command = text?.match(/^\/([^@\s]+)(?:@\S+)?(?:\s+([\s\S]*))?$/);
+      if (command) ctx.match = command[2] || '';
       const handler = ctx.callbackQuery ? this.handlers.get('callback_query:data')
-        : text?.startsWith('/') ? this.commands.get(text.slice(1)) : this.handlers.get('message:text');
+        : command ? this.commands.get(command[1]) : this.handlers.get(text ? 'message:text' : update.message?.photo ? 'message:photo' : update.message?.video ? 'message:video' : 'message:document');
       const step = (i) => i < this.middleware.length ? this.middleware[i](ctx, () => step(i + 1)) : handler?.(ctx);
       return step(0);
     }
   }
-  const bot = createBot({ botToken: 'fake', botId: 'default', adminId: 42, workspace: home, timezone: 'Europe/Moscow' }, { bot: new Harness(), runTurn });
-  t.after(() => bot.stop());
+  bot = createBot({ botToken: 'fake', botId: 'default', adminId: 42, workspace: home, timezone: 'Europe/Moscow' }, { bot: new Harness(), runTurn });
   if (overlay) installUpdateHook(Harness, { ADMIN_ID: '42' });
   await saveState({ engine: 'cc', extAuthBypass: 'codex', ccSessionId: 'ext:codex:0199a213-81c0-7800-8aa1-bbab2a035a53', dailySpendLimit: 10 });
   const storeFile = path.join(home, '.msb/bots/default/ext-providers.json');
   await fs.writeFile(storeFile, JSON.stringify({ version: 1, active: 'codex', models: { codex: 'gpt-6.1-terra' }, efforts: { codex: 'max' } }));
   const callback = (data, uid = 42) => bot.handleUpdate({ callback_query: { id: 'q', data, from: { id: uid }, message: { message_id: 1, chat: { id: 42 } } } });
   const message = (text, uid = 42) => bot.handleUpdate({ message: { message_id: 99, text, from: { id: uid }, chat: { id: 42 } } });
-  return { home, bot, callback, message, messages, edits, deleted, storeFile };
+  return { home, bot, callback, message, messages, edits, deleted, messageOptions, typingSignals, editSignals, replySignals, storeFile };
 }
 
 test('explicit Back and start cancel env/auth input before ordinary text', async (t) => {
@@ -140,6 +147,129 @@ test('/stop keeps current turn locked until it finishes and never reports succes
   await f.message('after exit');
   await until(() => calls === 2 && f.edits.at(-1) === 'fixture failure');
   assert.ok(!f.edits.includes('✅'));
+});
+
+test('/compact uses the selected Codex session and preserves the previous Telegram presentation', async (t) => {
+  const f = await fixture(t, undefined, { overlay: false });
+  const before = (await loadState()).state;
+  let called = false;
+  f.bot[Symbol.for('msb.compactProvider')] = async (snapshot, { isCurrent }) => {
+    called = true;
+    assert.equal(snapshot.ccSessionId, before.ccSessionId);
+    assert.equal(snapshot.extAuthBypass, 'codex');
+    assert.equal(await isCurrent(), true);
+    return { ok: true };
+  };
+  await f.message('/compact');
+  await until(() => f.edits.includes('🗜️ Контекст успешно сжат. Жду команду.'));
+  assert.ok(called);
+  assert.ok(f.messages.includes('🗜️ Сжимаю контекст...'));
+  assert.equal(f.typingSignals.at(-1)?.aborted, true);
+  for (const signal of [f.typingSignals.at(-1), f.editSignals.at(-1), f.replySignals[0]]) {
+    assert.ok(signal);
+    let retried = false, attempts = 0;
+    const transformer = presentationAwareRetry(() => { retried = true; });
+    await assert.rejects(async () => transformer(() => { attempts++; throw Error('429'); }, 'presentation', {}, signal), /429/);
+    assert.equal(attempts, 1);
+    assert.equal(retried, false);
+  }
+  assert.deepEqual((await loadState()).state, before);
+});
+
+test('/stop keeps a compaction locked until the provider finishes', async (t) => {
+  const f = await fixture(t, undefined, { overlay: false });
+  let start, release, observedSignal;
+  const entered = new Promise((resolve) => { start = resolve; });
+  f.bot[Symbol.for('msb.compactProvider')] = async (_snapshot, { signal }) => {
+    observedSignal = signal;
+    start();
+    await new Promise((resolve) => { release = resolve; });
+    return { ok: true };
+  };
+  await f.message('/compact');
+  await entered;
+  await f.message('/stop');
+  assert.equal(observedSignal.aborted, true);
+  assert.equal(f.typingSignals.at(-1)?.aborted, true);
+  await f.message('wait');
+  assert.match(f.messages.at(-1), /Уже работаю/);
+  release();
+  await until(() => f.edits.includes('Моя остановочка ✋🏽⛔️'));
+  assert.ok(!f.edits.includes('🗜️ Контекст успешно сжат. Жду команду.'));
+});
+
+test('/stop does not claim to interrupt a completed compaction while its result is being delivered', async (t) => {
+  const f = await fixture(t, undefined, { overlay: false });
+  let entered, finish;
+  const editing = new Promise((resolve) => { entered = resolve; });
+  f.bot.api.editMessageText = async (_chat, _id, text) => {
+    entered();
+    await new Promise((resolve) => { finish = resolve; });
+    f.edits.push(text);
+  };
+  f.bot[Symbol.for('msb.compactProvider')] = async () => ({ ok: true });
+  await f.message('/compact');
+  await editing;
+  await f.message('/stop');
+  assert.equal(f.messages.at(-1), 'Нечего останавливать 🤷');
+  finish();
+  await until(() => f.edits.includes('🗜️ Контекст успешно сжат. Жду команду.'));
+});
+
+test('/compact refuses a background run and never sends a switched session to the old provider', async (t) => {
+  const f = await fixture(t, undefined, { overlay: false });
+  const guard = trySessionOperation();
+  assert.ok(guard);
+  await f.message('/compact');
+  assert.match(f.messages.at(-1), /фоновый ход/);
+  guard();
+  let start, release;
+  const entered = new Promise((resolve) => { start = resolve; });
+  f.bot[Symbol.for('msb.compactProvider')] = async (_snapshot, { isCurrent }) => {
+    start();
+    await new Promise((resolve) => { release = resolve; });
+    return await isCurrent() ? { ok: true } : { ok: false, aborted: true };
+  };
+  await f.message('/compact');
+  await entered;
+  const next = { ...(await loadState()).state, extAuthBypass: 'claude', ccSessionId: 'claude-other', sessionEpoch: 1 };
+  await saveState(next);
+  release();
+  await until(() => f.edits.some((text) => /сжатие не запускалось/.test(text)));
+  assert.deepEqual((await loadState()).state, next);
+});
+
+test('/compact and normal turns cannot overlap across the owner’s chats', async (t) => {
+  let start, release;
+  const entered = new Promise((resolve) => { start = resolve; });
+  const f = await fixture(t, async () => {
+    start();
+    await new Promise((resolve) => { release = resolve; });
+    return { ok: true, text: 'done', result: {} };
+  }, { overlay: false });
+  let compactCalls = 0;
+  f.bot[Symbol.for('msb.compactProvider')] = async () => { compactCalls++; return { ok: true }; };
+  await f.message('working');
+  await entered;
+  await f.bot.handleUpdate({ message: { message_id: 101, text: '/compact', from: { id: 42 }, chat: { id: 43 } } });
+  assert.match(f.messages.at(-1), /Уже работаю/);
+  assert.equal(compactCalls, 0);
+  release();
+  await until(() => f.edits.some((text) => text.includes('done')));
+
+  let startCompact, finishCompact;
+  const compactEntered = new Promise((resolve) => { startCompact = resolve; });
+  f.bot[Symbol.for('msb.compactProvider')] = async () => {
+    startCompact();
+    await new Promise((resolve) => { finishCompact = resolve; });
+    return { ok: true };
+  };
+  await f.message('/compact');
+  await compactEntered;
+  await f.bot.handleUpdate({ message: { message_id: 102, text: 'other chat', from: { id: 42 }, chat: { id: 43 } } });
+  assert.match(f.messages.at(-1), /Уже работаю/);
+  finishCompact();
+  await until(() => f.edits.includes('🗜️ Контекст успешно сжат. Жду команду.'));
 });
 
 test('timezone form validates and digest screen/executor use the same saved zone', async (t) => {
@@ -316,3 +446,127 @@ async function until(check) {
   const end = Date.now() + 2000;
   while (!check()) { if (Date.now() > end) throw Error('Timed out waiting for detached turn'); await new Promise(r => setTimeout(r, 5)); }
 }
+
+// Old-core help reports voice support (vendor/UI-SCREENS.md); current open-core
+// retains voice/STT but not photo/video/document ingestion. Exercise both routes.
+test('help and attachment fallback do not claim that working voice is unavailable', async (t) => {
+  const f = await fixture(t, undefined, { overlay: false });
+  await f.message('/help');
+  const help = f.messages.at(-1);
+  assert.match(help, /Голосов[^\n]*распознаван/iu);
+  assert.match(help, /вложени[^\n]*пока не подключен/iu);
+  assert.doesNotMatch(help, /голосов[^\n]*не подключен/iu);
+  for (const kind of ['photo', 'video', 'document']) {
+    await f.bot.handleUpdate({ message: { message_id: 100, date: 1, chat: { id: 42 },
+      from: { id: 42, is_bot: false, first_name: 'Fixture' }, [kind]: {} } });
+    assert.match(f.messages.at(-1), /вложени[^\n]*пока не подключен/iu);
+    assert.doesNotMatch(f.messages.at(-1), /голос/iu);
+  }
+});
+
+// Old help described the legacy implementations; open-core handlers are explicit
+// about missing execution. The help must agree without hiding their commands.
+test('help distinguishes unavailable actions from the connected autonomy history', async (t) => {
+  const f = await fixture(t, undefined, { overlay: false });
+  for (const command of ['/help', '/openclaw']) {
+    await f.message(command);
+    const help = f.messages.at(-1);
+    assert.match(help, /\/undo[^\n]*пока не подключен/iu);
+    assert.match(help, /\/connect[^\n]*инструкц/iu);
+    assert.match(help, /\/autostatus[^\n]*история фоновых прогонов/iu);
+    assert.doesNotMatch(help, /\/autostatus[^\n]*пока не подключ[её]н/iu);
+  }
+  await f.message('/undo'); assert.match(f.messages.at(-1), /пока не подключена/iu);
+  await f.message('/connect'); assert.match(f.messages.at(-1), /сама туннель не запускает/iu);
+  await f.message('/autostatus'); assert.match(f.messages.at(-1), /Автономка ещё не запускалась/iu);
+});
+
+test('autostatus and history menu show recorded results for each engine without starting a turn', async (t) => {
+  let turns = 0;
+  const f = await fixture(t, async () => { turns++; return { ok: true, text: 'unused' }; }, { overlay: false });
+  const dir = autonomyDir();
+  await fs.mkdir(dir, { recursive: true });
+  const rows = Array.from({ length: 3 }, (_, i) => ({
+    at: `2026-11-06T12:0${i}:00.000Z`, taskId: `job-${i}`, ok: i !== 1,
+    error: i === 1 ? 'bad <tool>' : null, preview: `saved & ${i}`,
+  }));
+  await fs.writeFile(path.join(dir, 'runs.jsonl'), `${rows.map((row) => JSON.stringify(row)).join('\n')}\n`);
+  const initial = (await loadState()).state;
+  for (const [engine, provider] of [['cc', 'codex'], ['cc', undefined], ['cc', 'cursor'], ['oc', undefined]]) {
+    const state = { ...initial, engine };
+    if (provider) state.extAuthBypass = provider; else delete state.extAuthBypass;
+    await saveState(state);
+    await f.message('/autostatus 2');
+    const result = f.messages.at(-1);
+    assert.match(result, /последние 2 прогонов/);
+    assert.match(result, /job-2/);
+    assert.match(result, /job-1/);
+    assert.doesNotMatch(result, /job-0/);
+    assert.match(result, /bad &lt;tool&gt;/);
+    assert.match(result, /saved &amp; 2/);
+    assert.deepEqual((await loadState()).state, state);
+  }
+  await f.callback('auto:history');
+  assert.match(f.edits.at(-1), /<b>История<\/b>/);
+  assert.match(f.edits.at(-1), /job-0/);
+  assert.equal(turns, 0);
+});
+
+test('autostatus splits long reports and keeps Back on the last message', async (t) => {
+  const f = await fixture(t, undefined, { overlay: false });
+  const dir = autonomyDir();
+  await fs.mkdir(dir, { recursive: true });
+  const rows = Array.from({ length: 50 }, (_, i) => ({
+    at: '2026-11-06T12:00:00.000Z', taskId: `job-${i}`, ok: true,
+    error: null, preview: '<fixture & text> '.repeat(10),
+  }));
+  await fs.writeFile(path.join(dir, 'runs.jsonl'), `${rows.map((row) => JSON.stringify(row)).join('\n')}\n`);
+  await f.message('/autostatus 50');
+  assert.ok(f.messages.length > 1);
+  assert.ok(f.messages.every((text) => text.length <= 3500));
+  assert.match(f.messages.join(''), /job-49/);
+  assert.match(f.messages.join(''), /job-0/);
+  assert.doesNotMatch(f.messages.join(''), /<fixture/);
+  assert.equal(f.messageOptions.at(-1).reply_markup.inline_keyboard[0][0].callback_data, 'auto:home');
+});
+
+test('history menu splits long reports and keeps Back on the last message', async (t) => {
+  const f = await fixture(t, undefined, { overlay: false });
+  const dir = autonomyDir();
+  await fs.mkdir(dir, { recursive: true });
+  const rows = Array.from({ length: 10 }, (_, i) => ({
+    at: '2026-11-06T12:00:00.000Z', taskId: `job-${i}`, ok: true,
+    error: null, preview: '<fixture & text> '.repeat(45),
+  }));
+  await fs.writeFile(path.join(dir, 'runs.jsonl'), `${rows.map((row) => JSON.stringify(row)).join('\n')}\n`);
+  await f.callback('auto:history');
+  assert.ok(f.edits.length > 0 && f.messages.length > 0);
+  assert.ok([...f.edits, ...f.messages].every((text) => text.length <= 3500));
+  assert.match([...f.edits, ...f.messages].join(''), /job-0/);
+  assert.equal(f.messageOptions.at(-1).reply_markup.inline_keyboard[0][0].callback_data, 'auto:home');
+});
+
+// The default must never be presented as a saved value when the property is absent.
+test('API limit displays the same saved state in menu, screen and /cost', async (t) => {
+  const f = await fixture(t, undefined, { overlay: false });
+  const base = (await loadState()).state;
+  for (const [value, label] of [[undefined, 'не задан'], [0, 'без ограничений'], [25, '$25/день']]) {
+    const state = { ...base };
+    if (value === undefined) delete state.dailySpendLimit; else state.dailySpendLimit = value;
+    await saveState(state);
+    const button = settingsScreen(state).keyboard.inline_keyboard.flat().find(x => x.callback_data === 'settings:limit');
+    assert.equal(button.text, `💰 Лимит API: ${label}`);
+    assert.ok(limitScreen(state).text.includes(`Сохранённый лимит: ${label}.`));
+    await f.message('/cost'); assert.ok(f.messages.at(-1).includes(`Сохранённый лимит: ${label}.`));
+    assert.deepEqual((await loadState()).state, state, 'viewing must not write a default');
+  }
+});
+
+test('/compact presents a successful no-op without inventing a compaction or an error', async t => {
+  const f = await fixture(t);
+  const text = 'Сжимать пока нечего — история короткая. Контекст не забит, можно продолжать.';
+  f.bot[Symbol.for('msb.compactProvider')] = async () => ({ ok: true, compacted: false, text });
+  await f.message('/compact');
+  await until(() => f.edits.some(value => value === text));
+  assert.ok(!f.edits.some(value => /успешно сжат|Не получилось/.test(value)));
+});

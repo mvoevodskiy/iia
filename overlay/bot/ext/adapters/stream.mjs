@@ -12,6 +12,7 @@ export function emitInit({ sessionId, model, providerId }) {
     model: model || `ext/${providerId}`,
     tools: [],
     apiKeySource: 'ext',
+    provider_id: providerId,
   });
 }
 

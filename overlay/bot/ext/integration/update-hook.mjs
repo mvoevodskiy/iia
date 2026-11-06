@@ -3,6 +3,7 @@
  * Навигация: [Обвязка](../README.md).
  */
 import { registerEngineProviderView } from '../engine-menu.mjs';
+import { registerCompactProvider } from '../compact-codex.mjs';
 import { clearPendingAuth } from '../auth.mjs';
 import { clearPendingLocalIp } from '../local-ssh.mjs';
 import { handleCallback } from './callbacks.mjs';
@@ -11,6 +12,7 @@ import { EXT_MARKER } from './shared.mjs';
 
 export function installUpdateHook(BotClass, env = process.env) {
   registerEngineProviderView(BotClass, env);
+  registerCompactProvider(BotClass, env);
   const ownerId = Number(env.ADMIN_ID || env.OWNER_USER_ID || '0');
   const closedCore = env.MSB_USE_CLOSED_CORE === '1';
   const origHandleUpdate = BotClass.prototype.handleUpdate;

@@ -1,6 +1,7 @@
-import { loadMonitorConfig, saveMonitorConfig } from './config.mjs';
-import { listRecentItems, loadMeta, saveMeta } from './store.mjs';
+import { loadMonitorConfig, updateMonitorConfig } from './config.mjs';
+import { listRecentItems, updateMeta } from './store.mjs';
 import { loadState } from '../state.mjs';
+import { botId } from '../paths.mjs';
 
 export async function buildDigestText(env = process.env) {
   const cfg = await loadMonitorConfig(env);
@@ -24,46 +25,51 @@ export async function maybeSendDigest({ api, adminId, force = false, env = proce
   if (!api || !adminId) return { sent: false, reason: 'no-api' };
   const cfg = await loadMonitorConfig(env);
   if (!cfg.digest?.enabled && !force) return { sent: false, reason: 'disabled' };
+  // Shared monitor storage: only the configured bot owns scheduled delivery.
+  if (!force && botId(env) !== (cfg.digest?.targetBotId || 'default')) return { sent: false, reason: 'not-target' };
 
   const hour = cfg.digest?.hour ?? 9;
   const { state } = await loadState(env);
   const tz = state.timezone || env.MSB_TIMEZONE || 'Europe/Moscow';
-  const nowHour = hourInTz(tz);
-  const meta = await loadMeta(env);
-  const day = new Date().toISOString().slice(0, 10);
+  const result = await updateMeta(async (meta) => {
+    const now = new Date();
+    const localNow = clockInTz(now, tz);
+    const lastSent = new Date(meta.lastDigestAt || '');
+    const lastDay = Number.isNaN(lastSent.getTime()) ? null : clockInTz(lastSent, tz).day;
+    if (!force) {
+      if (localNow.hour !== hour) return { sent: false, reason: 'wrong-hour' };
+      if (lastDay === localNow.day) return { sent: false, reason: 'already' };
+    }
 
-  if (!force) {
-    if (nowHour !== hour) return { sent: false, reason: 'wrong-hour' };
-    if (meta.lastDigestAt?.startsWith(day)) return { sent: false, reason: 'already' };
-  }
+    const dig = await buildDigestText(env);
+    if (dig.empty && !force) return { sent: false, reason: 'empty' };
 
-  const dig = await buildDigestText(env);
-  if (dig.empty && !force) return { sent: false, reason: 'empty' };
-
-  await api.sendMessage(adminId, dig.text, { parse_mode: 'HTML', link_preview_options: { is_disabled: true } });
-  meta.lastDigestAt = new Date().toISOString();
-  await saveMeta(meta, env);
-  log(`[msb/monitor] digest sent (${dig.count || 0})`);
-  return { sent: true, count: dig.count || 0 };
+    await api.sendMessage(adminId, dig.text, { parse_mode: 'HTML', link_preview_options: { is_disabled: true } });
+    meta.lastDigestAt = now.toISOString();
+    return { sent: true, count: dig.count || 0 };
+  }, env);
+  if (result.sent) log(`[msb/monitor] digest sent (${result.count})`);
+  return result;
 }
 
 export async function updateDigestSettings(patch, env = process.env) {
-  const cfg = await loadMonitorConfig(env);
-  cfg.digest = { ...cfg.digest, ...patch };
-  await saveMonitorConfig(cfg, env);
-  return cfg.digest;
+  return updateMonitorConfig((cfg) => {
+    const delta = typeof patch === 'function' ? patch(cfg.digest) : patch;
+    cfg.digest = { ...cfg.digest, ...delta };
+    return cfg.digest;
+  }, env);
 }
 
-function hourInTz(tz) {
+function clockInTz(date, tz) {
   try {
     const parts = new Intl.DateTimeFormat('en-GB', {
       timeZone: tz,
-      hour: 'numeric',
-      hour12: false,
-    }).formatToParts(new Date());
-    return Number(parts.find((p) => p.type === 'hour')?.value || 0);
+      year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', hourCycle: 'h23',
+    }).formatToParts(date);
+    const get = (type) => parts.find((part) => part.type === type)?.value;
+    return { day: `${get('year')}-${get('month')}-${get('day')}`, hour: Number(get('hour')) };
   } catch {
-    return new Date().getHours();
+    return { day: `${date.getFullYear()}-${date.getMonth() + 1}-${date.getDate()}`, hour: date.getHours() };
   }
 }
 

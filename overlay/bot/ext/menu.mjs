@@ -90,7 +90,7 @@ export async function buildConnMenu(env = process.env, home) {
     'Выбери подключение или настрой авторизацию ниже.',
     'Cursor/Qwen — ключ в .env; Codex — ChatGPT login в ~/.codex (без секрета в Telegram).',
     '',
-    'Память и файлы общие; смена канала начинает новую сессию чата.',
+    'Память и файлы общие; при возврате к подключению продолжается его прежняя беседа.',
     '⠀',
   ];
 
@@ -210,7 +210,9 @@ export async function buildModelMenu(env = process.env, home) {
     '',
     'Выбери модель этого провайдера. Список Claude сюда не относится.',
     '',
-    '<i>Смена модели начнёт новую беседу у CLI-провайдера.</i>',
+    providerId === 'codex'
+      ? '<i>Смена модели сохраняет текущую сессию.</i>'
+      : '<i>Смена модели начнёт новую беседу у CLI-провайдера.</i>',
   ];
 
   const rows = [];
@@ -313,7 +315,7 @@ export async function buildEffortMenu(env = process.env, home = os.homedir()) {
 
   const title = providerTitle(providerId);
   const modelId = await currentModelId(providerId, store, env, home);
-  const current = (await currentEffortId(providerId, env, home)) || 'high';
+  const current = await currentEffortId(providerId, env, home);
   const levels = [
     { id: 'low', desc: 'быстро, минимум раздумий' },
     { id: 'medium', desc: 'обычная глубина' },
@@ -330,9 +332,9 @@ export async function buildEffortMenu(env = process.env, home = os.homedir()) {
     '',
     'Насколько глубоко Codex обдумывает ответ (`model_reasoning_effort`).',
     '',
-    ...levels.map((z) => `<b>${z.id}</b>: ${z.desc}${z.id === 'high' ? ' (по умолчанию)' : ''}`),
+    ...levels.map((z) => `<b>${z.id}</b>: ${z.desc}`),
     '',
-    `<b>Сейчас:</b> ${esc(current)}`,
+    `<b>Сейчас:</b> ${esc(current || 'по умолчанию CLI')}`,
   ];
 
   const row = [];

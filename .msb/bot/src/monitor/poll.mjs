@@ -2,27 +2,29 @@
  * Сбор источников мониторинга (RSS / YouTube RSS / GitHub Atom / TG public / X).
  * Навигация: [Мониторинг](./README.md) → [storage](./store.mjs), [digest](./digest.mjs).
  */
-import { loadMonitorConfig, saveMonitorConfig } from './config.mjs';
-import { appendItems, itemId, loadMeta, saveMeta } from './store.mjs';
+import { loadMonitorConfig, updateMonitorConfig } from './config.mjs';
+import { appendItems, itemId, updateMeta } from './store.mjs';
 
 export async function pollAllSources(env = process.env, { log = console.error } = {}) {
   const cfg = await loadMonitorConfig(env);
-  const meta = await loadMeta(env);
+  const pollTimes = {};
   const collected = [];
   const errors = [];
+  const sourceUpdates = [];
 
   if (cfg.rss.enabled) {
     for (const feed of cfg.rss.feeds.filter((f) => f.enabled !== false)) {
       try {
         const items = await fetchRss(feed.url, 'rss', feed.url, feed.name);
         collected.push(...items);
-        meta.lastPollAt[`rss:${feed.url}`] = new Date().toISOString();
+        pollTimes[`rss:${feed.url}`] = new Date().toISOString();
         feed.lastError = null;
       } catch (err) {
         feed.lastError = err.message;
         errors.push({ type: 'rss', id: feed.url, error: err.message });
         log(`[msb/monitor] rss fail ${feed.url}: ${err.message}`);
       }
+      sourceUpdates.push({ type: 'rss', key: feed.url, addedAt: feed.addedAt, lastError: feed.lastError });
     }
   }
 
@@ -34,20 +36,20 @@ export async function pollAllSources(env = process.env, { log = console.error } 
           channelId = await resolveYoutubeHandle(ch.handle);
           if (channelId) {
             ch.channelId = channelId;
-            await saveMonitorConfig(cfg, env);
           }
         }
         if (!channelId) throw new Error('нет channelId — укажи /channel/UC… или @handle');
         const url = `https://www.youtube.com/feeds/videos.xml?channel_id=${encodeURIComponent(channelId)}`;
         const items = await fetchRss(url, 'youtube', channelId, ch.name);
         collected.push(...items);
-        meta.lastPollAt[`youtube:${channelId}`] = new Date().toISOString();
+        pollTimes[`youtube:${channelId}`] = new Date().toISOString();
         ch.lastError = null;
       } catch (err) {
         ch.lastError = err.message;
         errors.push({ type: 'youtube', id: ch.name, error: err.message });
         log(`[msb/monitor] youtube fail ${ch.name}: ${err.message}`);
       }
+      sourceUpdates.push({ type: 'youtube', key: ch.handle || ch.channelId || ch.name, addedAt: ch.addedAt, lastError: ch.lastError, channelId: ch.channelId });
     }
   }
 
@@ -61,13 +63,14 @@ export async function pollAllSources(env = process.env, { log = console.error } 
           items.push(...(await fetchRss(commits, 'github', `${repo.owner}/${repo.repo}`, repo.name)));
         }
         collected.push(...items);
-        meta.lastPollAt[`github:${repo.owner}/${repo.repo}`] = new Date().toISOString();
+        pollTimes[`github:${repo.owner}/${repo.repo}`] = new Date().toISOString();
         repo.lastError = null;
       } catch (err) {
         repo.lastError = err.message;
         errors.push({ type: 'github', id: repo.name, error: err.message });
         log(`[msb/monitor] github fail ${repo.name}: ${err.message}`);
       }
+      sourceUpdates.push({ type: 'github', key: `${repo.owner}/${repo.repo}`, addedAt: repo.addedAt, lastError: repo.lastError });
     }
   }
 
@@ -76,13 +79,14 @@ export async function pollAllSources(env = process.env, { log = console.error } 
       try {
         const items = await fetchTelegramPublic(ch.username, ch.name);
         collected.push(...items);
-        meta.lastPollAt[`telegram:${ch.username}`] = new Date().toISOString();
+        pollTimes[`telegram:${ch.username}`] = new Date().toISOString();
         ch.lastError = null;
       } catch (err) {
         ch.lastError = err.message;
         errors.push({ type: 'telegram', id: ch.username, error: err.message });
         log(`[msb/monitor] telegram fail ${ch.username}: ${err.message}`);
       }
+      sourceUpdates.push({ type: 'telegram', key: ch.username, addedAt: ch.addedAt, lastError: ch.lastError });
     }
   }
 
@@ -93,21 +97,43 @@ export async function pollAllSources(env = process.env, { log = console.error } 
         if (!bearer) throw new Error('нужен X_BEARER_TOKEN в переменных окружения');
         const items = await fetchTwitter(acc.username, bearer, acc.name);
         collected.push(...items);
-        meta.lastPollAt[`twitter:${acc.username}`] = new Date().toISOString();
+        pollTimes[`twitter:${acc.username}`] = new Date().toISOString();
         acc.lastError = null;
       } catch (err) {
         acc.lastError = err.message;
         errors.push({ type: 'twitter', id: acc.username, error: err.message });
         log(`[msb/monitor] twitter fail ${acc.username}: ${err.message}`);
       }
+      sourceUpdates.push({ type: 'twitter', key: acc.username, addedAt: acc.addedAt, lastError: acc.lastError });
     }
   }
 
-  await saveMonitorConfig(cfg, env);
+  await updateMonitorConfig((current) => mergeSourceUpdates(current, sourceUpdates), env);
   const added = await appendItems(collected, env);
-  await saveMeta(meta, env);
+  await updateMeta((meta) => {
+    meta.lastPollAt = { ...meta.lastPollAt, ...pollTimes };
+  }, env);
   log(`[msb/monitor] poll done: fetched=${collected.length} new=${added} errors=${errors.length}`);
   return { fetched: collected.length, added, errors, cfg };
+}
+
+function mergeSourceUpdates(cfg, updates) {
+  const buckets = {
+    rss: [cfg.rss.feeds, (item) => item.url],
+    youtube: [cfg.youtube.channels, (item) => item.handle || item.channelId || item.name],
+    github: [cfg.github.repos, (item) => `${item.owner}/${item.repo}`],
+    telegram: [cfg.telegram.channels, (item) => item.username],
+    twitter: [cfg.twitter.accounts, (item) => item.username],
+  };
+  for (const update of updates) {
+    const [list, key] = buckets[update.type];
+    const matches = list.filter((entry) => key(entry) === update.key && entry.addedAt === update.addedAt);
+    if (matches.length !== 1) continue;
+    matches[0].lastError = update.lastError;
+    if (update.type === 'youtube' && update.channelId && !matches[0].channelId) {
+      matches[0].channelId = update.channelId;
+    }
+  }
 }
 
 async function fetchText(url) {

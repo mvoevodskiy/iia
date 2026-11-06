@@ -5,7 +5,7 @@ from const import (
     BOT_ID_RE,
     BOT_TEMPLATE,
     BOT_UNIT_TMPL,
-    CLIENT_HOME,
+    CLIENT_ROOT,
     CODES,
     HELPER_VERSION,
     MARKS_DIR,
@@ -34,7 +34,7 @@ from util import (
 
 
 def bot_ids():
-    root = os.path.join(CLIENT_HOME, ".msb", "bots")
+    root = os.path.join(CLIENT_ROOT, "bots")
     try:
         names = os.listdir(root)
     except OSError:
@@ -203,7 +203,7 @@ def available_actions(j, o, p=None):
 
 def pult_info():
     """Статус модуля Пульт (без импорта actions — иначе цикл state↔actions)."""
-    root = os.path.join(CLIENT_HOME, ".msb", "pult")
+    root = os.path.join(CLIENT_ROOT, "pult")
     off = os.path.join(STATE_DIR, "pult.off")
     units = ("pult-web.service", "pult-collector.service")
     installed = os.path.isfile(os.path.join(root, "package.json")) and os.path.isfile(
