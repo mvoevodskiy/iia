@@ -31,15 +31,18 @@ export async function main() {
     adminId: cfg.adminId,
   });
 
-  const shutdown = (sig) => {
+  let shuttingDown = false;
+  const shutdown = async (sig) => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    scheduler.stop();
+    monitor.stop();
     console.error(`[msb/open] ${sig} — shutting down`);
     try {
-      bot.stop();
+      await bot.stop();
     } catch {
       /* ignore */
     }
-    scheduler.stop();
-    monitor.stop();
     heartbeat.stop();
     process.exit(0);
   };

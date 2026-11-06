@@ -8,7 +8,7 @@ import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
 const home = await fs.mkdtemp(path.join(os.tmpdir(), 'msb-stop-reference-'));
 const events = [], calls = [];
-let bot, child, autoClose, markStarted;
+let bot, child, autoClose, markStarted, shutdown;
 const started = new Promise(resolve => { markStarted = resolve; });
 const watchdog = setTimeout(() => { console.error('Fixture timed out'); process.exit(2); }, 4000);
 try {
@@ -47,19 +47,21 @@ try {
     calls.push({ method, text: payload.text });
     if (method === 'deleteWebhook') return { ok: true, result: true };
     if (method === 'getUpdates') {
+      if (!signal && payload.limit === 1) return { ok: true, result: [] }; // Grammy final offset acknowledgement
       if (batch++ === 0) return { ok: true, result: [update(1, 'reference task')] };
       if (batch === 2) { await started; events.push('stop-delivered'); return { ok: true, result: [update(2, '/stop')] }; }
       await new Promise(resolve => { if (signal?.aborted) resolve(); else signal?.addEventListener('abort', resolve, { once: true }); });
       return { ok: true, result: [] };
     }
     if (method === 'sendMessage' || method === 'editMessageText') {
-      if (/останов|Останавливаю|ничего не выполняется/i.test(payload.text || '')) queueMicrotask(() => { void bot.stop(); });
+      if (/останов|Останавливаю|ничего не выполняется/i.test(payload.text || '')) queueMicrotask(() => { shutdown = bot.stop(); });
       return { ok: true, result: { message_id: payload.message_id || ++messageId, date: 1, chat: { id: 42, type: 'private' }, text: payload.text } };
     }
     if (method === 'sendChatAction' || method === 'deleteMessage') return { ok: true, result: true };
     throw Error(`Unexpected Telegram API: ${method}`);
   });
   await bot.start();
+  await shutdown;
   console.log('REFERENCE_RESULT=' + JSON.stringify({ events, calls }));
 } finally {
   clearTimeout(watchdog); clearTimeout(autoClose);

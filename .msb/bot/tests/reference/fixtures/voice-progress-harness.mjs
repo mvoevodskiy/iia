@@ -177,9 +177,16 @@ const message = {
   } : { text: 'Задача для проверки индикации.' }),
 };
 await bot.handleUpdate({ update_id: 1, message });
-// Allow queued handlers to finish without treating their current placeholder as success.
-const deadline = Date.now() + 3000;
-while (Date.now() < deadline && result.cli.some((call) => call.finishedAt === null)) await wait(20);
+// Long turns now run outside polling. Observe their delivery, not handler return.
+const deadline = Date.now() + 10000;
+while (Date.now() < deadline) {
+  const delivered = result.api.some(call => ['sendMessage', 'editMessageText'].includes(call.method) && String(call.payload.text || '').includes(answer));
+  if (result.cli.length && result.cli.every(call => call.finishedAt !== null) && delivered) break;
+  // The current voice placeholder is a completed negative observation, not a pass.
+  if (scenario === 'voice' && result.api.some(call => /Медиа принято/.test(call.payload.text || ''))) break;
+  await wait(20);
+}
+if (scenario === 'progress' && !result.cli.some(call => call.finishedAt !== null)) throw Error('Delayed CLI fixture did not finish');
 await wait(300);
 result.activeIntervals = liveIntervals.size;
 for (const handle of liveIntervals) realClearInterval(handle);

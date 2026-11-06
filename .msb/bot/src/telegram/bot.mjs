@@ -18,10 +18,22 @@ export function createBot(cfg) {
   const bot = new Bot(cfg.botToken);
   bot.api.config.use(autoRetry());
 
-  /** @type {Map<number, AbortController>} */
+  /** Active turns outlive the polling handler; keep ownership until delivery finishes. */
   const running = new Map();
   /** @type {Map<number, string>} */
   const pending = new Map();
+
+  let stopping = false;
+  const startPolling = bot.start.bind(bot);
+  bot.start = (...args) => { stopping = false; return startPolling(...args); };
+  const stopPolling = bot.stop.bind(bot);
+  bot.stop = async () => {
+    stopping = true;
+    const turns = [...running.values()];
+    for (const turn of turns) if (!turn.completed) turn.controller.abort();
+    try { await stopPolling(); }
+    finally { await Promise.allSettled(turns.map((turn) => turn.done)); }
+  };
 
   bot.use(adminGuard(cfg.adminId));
 
@@ -91,19 +103,19 @@ export function createBot(cfg) {
 
 
   bot.command('stop', async (ctx) => {
-    const ac = running.get(ctx.chat.id);
-    if (ac) {
-      ac.abort();
-      running.delete(ctx.chat.id);
-      await ctx.reply('Останавливаю текущий ход…');
+    const turn = running.get(ctx.chat.id);
+    if (turn && !turn.completed) {
+      turn.controller.abort();
+      await ctx.reply('Моя остановочка ✋🏽⛔️');
     } else {
-      await ctx.reply('Сейчас ничего не выполняется.');
+      await ctx.reply('Нечего останавливать 🤷');
     }
   });
 
   bot.command('newtask', async (ctx) => {
     await updateState((s) => {
       delete s.ccSessionId;
+      s.sessionEpoch = (s.sessionEpoch || 0) + 1;
       return s;
     });
     await ctx.reply('Новая сессия. Пиши задачу.');
@@ -112,6 +124,7 @@ export function createBot(cfg) {
   bot.command('clear', async (ctx) => {
     await updateState((s) => {
       delete s.ccSessionId;
+      s.sessionEpoch = (s.sessionEpoch || 0) + 1;
       return s;
     });
     await ctx.reply('Контекст сброшен.');
@@ -340,35 +353,59 @@ export function createBot(cfg) {
       return;
     }
 
-    const ac = new AbortController();
-    running.set(chatId, ac);
-    const status = await ctx.reply('⏳ Думаю…');
-    const bump = async (label) => {
-      try {
-        await ctx.api.editMessageText(chatId, status.message_id, label);
-      } catch {
-        /* ignore */
-      }
-    };
+    if (stopping) return;
+    const turn = { controller: new AbortController(), completed: false, done: null };
+    running.set(chatId, turn);
+    // Return to Grammy immediately, so the next getUpdates can deliver /stop.
+    turn.done = executeTurn(ctx, text, turn).catch((err) => {
+      console.error('[msb/bot] turn delivery failed:', err.message);
+    });
+  });
 
+  async function executeTurn(ctx, text, turn) {
+    const chatId = ctx.chat.id;
+    const signal = turn.controller.signal;
+    let status;
+    let edits = Promise.resolve();
+    let finishing = false;
+    const bump = (label) => {
+      edits = edits.then(async () => {
+        if (finishing || signal.aborted || !status) return;
+        await ctx.api.editMessageText(chatId, status.message_id, label);
+      }).catch(() => {});
+    };
+    const stopped = async () => {
+      if (status) await ctx.api.editMessageText(chatId, status.message_id, 'Моя остановочка ✋🏽⛔️');
+    };
     try {
+      status = await ctx.reply('Думаю ⏳');
+      if (signal.aborted) { await stopped(); return; }
       const out = await runAgentTurn({
-        prompt: text,
-        signal: ac.signal,
+        prompt: text, signal,
         onStatus(ev) {
-          if (ev.kind === 'tool') void bump(`🔧 ${ev.name}${ev.input ? `: ${ev.input}` : ''}`);
-          else if (ev.kind === 'thinking') void bump('💭 Думаю…');
-          else if (ev.kind === 'init') void bump(`🧠 ${ev.model || 'модель'}…`);
+          if (ev.kind === 'tool') bump(`🔧 ${ev.name}${ev.input ? `: ${ev.input}` : ''}`);
+          else if (ev.kind === 'thinking') bump('💭 Думаю…');
+          else if (ev.kind === 'init') bump(`🧠 ${ev.model || 'модель'}…`);
         },
       });
-      await bump('✅');
+      finishing = true;
+      await edits; // An already in-flight progress edit must finish before the terminal edit.
+      if (signal.aborted || out.error === 'aborted') { await stopped(); return; }
+      turn.completed = true;
+      if (out.ok) await ctx.api.editMessageText(chatId, status.message_id, '✅').catch(() => {});
       await replyChunked(ctx, out.text);
     } catch (err) {
-      await ctx.reply(`Ошибка хода: ${err.message}`);
+      finishing = true;
+      await edits;
+      if (signal.aborted) await stopped().catch(() => {});
+      else { turn.completed = true; await ctx.reply(`Ошибка хода: ${err.message}`); }
     } finally {
-      running.delete(chatId);
+      finishing = true;
+      await edits;
+      turn.completed = true;
+      if (running.get(chatId) === turn) running.delete(chatId);
     }
-  });
+  }
 
   bot.on(['message:voice', 'message:photo', 'message:video', 'message:document'], async (ctx) => {
     const { state } = await loadState();
@@ -444,7 +481,7 @@ export async function runPolling(bot, { log = console.error } = {}) {
         return;
       }
       try {
-        bot.stop();
+        await bot.stop();
       } catch {
         /* ignore */
       }

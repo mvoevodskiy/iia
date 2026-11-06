@@ -86,12 +86,25 @@ export async function runClaudeTurn(opts) {
     throw new Error(`MESSAGE_TOO_LARGE:${(promptBytes / 1024 / 1024).toFixed(1)}`);
   }
 
+  if (opts.signal?.aborted) {
+    if (sysPromptFile) await fs.unlink(sysPromptFile).catch(() => {});
+    return {
+      sessionId: opts.sessionId || '', text: '', isError: false,
+      exitCode: null, signal: null, aborted: true,
+      usage: { inputTokens: 0, outputTokens: 0 }, toolsUsed: [], toolCount: 0, stderr: '',
+    };
+  }
+
   console.error(
     `[msb/agent-cc] Spawning: claude ${args.slice(0, 3).join(' ')}... (session=${(opts.sessionId || 'new').slice(0, 8)}, model=${opts.model || 'default'}, prompt=${promptBytes}B)`,
   );
 
   return new Promise((resolve, reject) => {
     let child;
+    let closed = false;
+    let abortStarted = false;
+    let termTimer = null;
+    let killTimer = null;
     try {
       child = spawn('claude', args, {
         cwd,
@@ -116,29 +129,41 @@ export async function runClaudeTurn(opts) {
     child.stdin?.on('error', () => {});
     child.stdin?.end(opts.prompt || '');
 
-    const onAbort = () => {
-      try {
-        child.kill('SIGINT');
-      } catch {
-        /* ignore */
-      }
-      setTimeout(() => {
+    function signalGroup(signal) {
+      if (closed) return false;
+      // The detached CLI owns this process group, including its shim/tools.
+      // Do not test child.killed: it only means a signal was sent. Nor does
+      // leader exit imply close: descendants can still hold inherited pipes.
+      if (child?.pid) {
         try {
-          if (child.pid) process.kill(-child.pid, 'SIGTERM');
+          process.kill(-child.pid, signal);
+          return true;
         } catch {
-          try {
-            child.kill('SIGTERM');
-          } catch {
-            /* ignore */
-          }
+          // A missing group may occur before spawn finishes. Fall back only
+          // while the original child is still alive, never to a reaped PID.
         }
-      }, 2000).unref?.();
-    };
-    if (opts.signal) {
-      if (opts.signal.aborted) onAbort();
-      else opts.signal.addEventListener('abort', onAbort, { once: true });
+      }
+      if (child && child.exitCode == null && child.signalCode == null) {
+        try { return child.kill(signal); } catch { /* already gone */ }
+      }
+      return false;
     }
 
+    function onAbort() {
+      if (closed || abortStarted) return;
+      abortStarted = true;
+      if (!signalGroup('SIGINT') || closed) return;
+      termTimer = setTimeout(() => {
+        termTimer = null;
+        if (!signalGroup('SIGTERM') || closed) return;
+        killTimer = setTimeout(() => {
+          killTimer = null;
+          signalGroup('SIGKILL');
+        }, 5000);
+        killTimer.unref?.();
+      }, 3000);
+      termTimer.unref?.();
+    }
     let stdoutBuf = '';
     let stderr = '';
     let sessionId = opts.sessionId || '';
@@ -230,7 +255,18 @@ export async function runClaudeTurn(opts) {
       });
     });
 
+    // Register terminal handlers first: an already-aborted signal (or a mock
+    // child that closes synchronously on kill) must still settle this turn.
+    if (opts.signal) {
+      if (opts.signal.aborted) onAbort();
+      else opts.signal.addEventListener('abort', onAbort, { once: true });
+    }
+
     function cleanup() {
+      closed = true;
+      if (termTimer !== null) clearTimeout(termTimer);
+      if (killTimer !== null) clearTimeout(killTimer);
+      termTimer = killTimer = null;
       if (sysPromptFile) fs.unlink(sysPromptFile).catch(() => {});
     }
   });

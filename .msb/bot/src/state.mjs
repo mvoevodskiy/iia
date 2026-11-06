@@ -36,11 +36,22 @@ export async function saveState(state, env = process.env) {
   return file;
 }
 
-export async function updateState(mutator, env = process.env) {
-  const { state } = await loadState(env);
-  const next = (await mutator({ ...state })) || state;
-  await saveState(next, env);
-  return next;
+// Polling and background turns can update the same profile concurrently.
+// Serialize the entire read/modify/write transaction, not just the rename.
+const stateUpdates = new Map();
+export function updateState(mutator, env = process.env) {
+  const file = statePath(env);
+  const previous = stateUpdates.get(file) || Promise.resolve();
+  const update = previous.catch(() => {}).then(async () => {
+    const { state } = await loadState(env);
+    const next = (await mutator({ ...state })) || state;
+    await saveState(next, env);
+    return next;
+  });
+  stateUpdates.set(file, update);
+  const release = () => { if (stateUpdates.get(file) === update) stateUpdates.delete(file); };
+  update.then(release, release);
+  return update;
 }
 
 export function hasClaudeAuth(env = process.env, state = {}) {

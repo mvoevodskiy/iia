@@ -93,6 +93,7 @@ export async function handleCallback({ bot, cfg, pending, ctx }) {
   if (data === 'menu:newtask') {
     await updateState((s) => {
       delete s.ccSessionId;
+      s.sessionEpoch = (s.sessionEpoch || 0) + 1;
       return s;
     });
     await bot.api.sendMessage(chatId, 'Новая сессия. Пиши задачу.');

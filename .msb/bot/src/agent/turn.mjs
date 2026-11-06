@@ -19,6 +19,8 @@ export async function runAgentTurn({
   autonomy = false,
   env = process.env,
 } = {}) {
+  const aborted = () => ({ ok: false, error: 'aborted', text: 'Остановлено.' });
+  if (signal?.aborted) return aborted();
   const { state } = await loadState(env);
   if (!hasClaudeAuth(env, state)) {
     return {
@@ -40,6 +42,8 @@ export async function runAgentTurn({
   const effort = resolveEffort(state);
   const permissionMode = resolvePermMode(state);
   const systemPrompt = await buildSystemPrompt();
+
+  if (signal?.aborted) return aborted();
 
   let lastTool = '';
   const result = await runClaudeTurn({
@@ -69,14 +73,16 @@ export async function runAgentTurn({
     },
   });
 
-  if (result.sessionId && result.sessionId !== state.ccSessionId) {
+  if (!signal?.aborted && !result.aborted && !result.isError && result.sessionId && result.sessionId !== state.ccSessionId) {
     await updateState((s) => {
+      if (signal?.aborted || s.ccSessionId !== state.ccSessionId ||
+          (s.sessionEpoch || 0) !== (state.sessionEpoch || 0) || s.extAuthBypass !== state.extAuthBypass) return s;
       s.ccSessionId = result.sessionId;
       return s;
     }, env);
   }
 
-  if (result.aborted) {
+  if (signal?.aborted || result.aborted) {
     return { ok: false, error: 'aborted', text: 'Остановлено.', result };
   }
 
