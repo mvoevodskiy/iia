@@ -24,6 +24,9 @@ function run(scenario) {
   assert.ok(report.events.includes('stop-drained'), 'The stop wrapper must finish before state and delivery are inspected.');
   assert.ok(report.calls.some(call => call.text === 'Нечего останавливать 🤷'), 'Preserve the original idle stop response.');
   assert.equal(report.intervalsAfterStop, 0, 'No progress/typing interval may survive the drained stop.');
+  assert.equal(new Set(report.history.map(row => row.turnId)).size, report.history.length, 'one terminal journal record per turn');
+  assert.ok(report.history.every(row => ['ok', 'aborted', 'error'].includes(row.status)));
+  assert.ok(report.history.filter(row => row.status === 'ok').every(row => row.providerId === 'codex'));
   return report;
 }
 
@@ -42,6 +45,7 @@ function assertAnswerReplacedStatus(report, number) {
 
 test('turn lifecycle: early stop avoids spawn; failed initial status does not strand the next turn', () => {
   const early = run('early-stop');
+  assert.equal(early.history[0].providerId, null, 'no provider claimed before any CLI marker');
   assert.equal(early.cli.length, 0, 'An aborted request must not spawn CLI after its delayed status resolves.');
   assert.ok(early.events.indexOf('stop-delivered') < early.events.indexOf('initial-status-released'));
   assert.equal(early.finalMessages[early.initialStatusId], stopped);

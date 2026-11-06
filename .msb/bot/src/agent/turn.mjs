@@ -58,7 +58,9 @@ export async function runAgentTurn({
     signal,
     autonomy,
     onEvent(ev) {
-      if (ev.type === 'assistant') {
+      if (ev.type === 'system' && ev.subtype === 'provider') {
+        onStatus?.({ kind: 'provider', providerId: ev.provider_id });
+      } else if (ev.type === 'assistant') {
         for (const part of ev.message?.content || []) {
           if (part.type === 'tool_use' && part.name) {
             lastTool = part.name;

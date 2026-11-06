@@ -113,6 +113,7 @@ try {
     child.stdin.setEncoding('utf8');
     child.stdin.on('data', (text) => { record.prompt += text; });
     child.stdin.on('end', () => {
+      emit({ type: 'system', subtype: 'provider', provider_id: 'codex' });
       emit({ type: 'system', subtype: 'init', session_id: `new-session-B-${number}`, model: 'fixture-model' });
       report.events.push(`cli-init:${number}`);
     });
@@ -237,6 +238,9 @@ try {
   report.intervalsAfterStop = liveIntervals.size;
   report.activeChildren = activeChildren;
   report.state = JSON.parse(await fs.readFile(stateFile, 'utf8'));
+  const traceDir = path.join(path.dirname(stateFile), 'traces');
+  report.history = [];
+  for (const name of await fs.readdir(traceDir)) report.history.push(...(await fs.readFile(path.join(traceDir, name), 'utf8')).trim().split('\n').map(JSON.parse));
   console.log('LIFECYCLE_RESULT=' + JSON.stringify(report));
 } finally {
   releaseInitial(); releaseProgress();

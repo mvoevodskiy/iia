@@ -8,9 +8,10 @@ import type { Run, RunStatus } from '../../shared/types.ts';
 import { clip } from '../../shared/format.ts';
 import { isoMs, iso, type Problems, readJsonFile, readJsonl, scrub, SourceFailure, utcDay } from '../util.ts';
 
-export interface TraceRec { ts: string; query?: string; toolCalls?: number; elapsedMs?: number }
-export interface TranscriptRec { ts: string; role?: string; text?: string }
-export interface DiaryRec { ts: string; kind?: string; summary?: string }
+export interface HistoryIdentity { turnId?: string; providerId?: string | null; status?: string }
+export interface TraceRec extends HistoryIdentity { ts: string; query?: string; toolCalls?: number; elapsedMs?: number }
+export interface TranscriptRec extends HistoryIdentity { ts: string; role?: string; text?: string }
+export interface DiaryRec extends HistoryIdentity { ts: string; kind?: string; summary?: string }
 export interface RunRec {
   ts: string;
   actionId?: string;

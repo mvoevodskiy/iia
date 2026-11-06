@@ -10,7 +10,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadStore, encodeExtSession, setSession, decodeExtSession } from '../store.mjs';
 import { parseClaudeArgv, readStdin, buildPrompt } from '../adapters/parse-args.mjs';
-import { emitInit, emitAssistantText, emitResult, emitError } from '../adapters/stream.mjs';
+import { emit, emitInit, emitAssistantText, emitResult, emitError } from '../adapters/stream.mjs';
 import { runCursorTurn, isCursorSessionId } from '../adapters/cursor.mjs';
 import { runCodexTurn } from '../adapters/codex.mjs';
 import { runQwenTurn } from '../adapters/qwen.mjs';
@@ -194,10 +194,12 @@ async function main() {
       console.error('[msb/ext/shim] настоящий claude не найден (MSB_REAL_CLAUDE / PATH)');
       process.exit(127);
     }
+    emit({ type: 'system', subtype: 'provider', provider_id: 'claude' });
     passthroughClaude(real, argv);
     return;
   }
 
+  emit({ type: 'system', subtype: 'provider', provider_id: active });
   await runAlternate(active, argv);
 }
 

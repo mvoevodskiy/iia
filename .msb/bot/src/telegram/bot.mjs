@@ -10,6 +10,7 @@ import path from 'node:path';
 import { recognizeVoice, voicePreview, STT_ONBOARDING } from './voice.mjs';
 import { startTurnProgress } from './progress.mjs';
 import { deliverTurnResponse } from './response.mjs';
+import { beginTurnHistory } from './history.mjs';
 import { runAgentTurn } from '../agent/turn.mjs';
 import { hasClaudeAuth, loadState, updateState } from '../state.mjs';
 import { addTask, tryParseScheduleMessage } from '../autonomy/store.mjs';
@@ -472,10 +473,15 @@ export function createBot(cfg, { bot = new Bot(cfg.botToken), runTurn = runAgent
     let transcription;
     let transcribed = false;
     const startedAt = performance.now();
+    let history, result, outcome = 'error', deliveredText = '', delivered = false;
+    let responseReady = false;
     const stopped = async () => {
-      if (status) await ctx.api.editMessageText(chatId, status.message_id, 'Моя остановочка ✋🏽⛔️', {}, presentationSignal(AbortSignal.timeout(15_000))).catch(() => {});
+      outcome = 'aborted';
+      if (status) await ctx.api.editMessageText(chatId, status.message_id, 'Моя остановочка ✋🏽⛔️', {}, presentationSignal(AbortSignal.timeout(15_000)))
+        .then(() => { deliveredText = 'Моя остановочка ✋🏽⛔️'; delivered = true; }).catch(() => {});
     };
     try {
+      if (!voice) history = await beginTurnHistory({ input: ctx.message?.text ?? text });
       const thread = ctx.message?.message_thread_id;
       if (voice) {
         transcription = await ctx.reply('🎙 Расшифровываю...', thread && thread !== 1 ? { message_thread_id: thread } : {});
@@ -493,19 +499,28 @@ export function createBot(cfg, { bot = new Bot(cfg.botToken), runTurn = runAgent
         signal.throwIfAborted();
         transcribed = true;
         text = recognized.prompt;
+        history = await beginTurnHistory({ input: recognized.transcript.slice(0, 300) });
         progress.beginThinking();
       }
-      const out = await runTurn({ prompt: text, signal, onStatus: ev => progress.onStatus(ev) });
+      const out = await runTurn({ prompt: text, signal, onStatus: ev => {
+        if (ev.kind === 'provider') history?.provider(ev.providerId);
+        progress.onStatus(ev);
+      } });
+      result = out.result;
+      outcome = out.ok ? 'ok' : 'error';
       await progress.stop();
       if (signal.aborted || out.error === 'aborted') { await stopped(); return; }
       turn.completed = true;
+      responseReady = true;
       await deliverTurnResponse(ctx, status.message_id, out.text, out.ok ? {
         elapsedMs: performance.now() - startedAt, costUsd: out.result?.costUsd, context: out.result?.context,
       } : {});
+      deliveredText = out.text; delivered = true;
     } catch (err) {
       await progress?.stop();
       if (signal.aborted) await stopped().catch(() => {});
       else {
+        outcome = responseReady ? 'delivery_error' : 'error';
         turn.completed = true;
         if (voice && err.code === 'STT_NOT_CONFIGURED') {
           if (status) await ctx.api.deleteMessage(chatId, status.message_id, presentationSignal(AbortSignal.timeout(15_000))).catch(() => {});
@@ -516,6 +531,7 @@ export function createBot(cfg, { bot = new Bot(cfg.botToken), runTurn = runAgent
             ? `❌ Не удалось обработать голосовое: ${String(err.message).slice(0, 200)}\n\nПопробуй ещё раз или напиши текстом.`
             : `❌ Ошибка: ${String(err.message).slice(0, 300)}`;
           await deliverTurnResponse(ctx, status?.message_id, error, {});
+          deliveredText = error; delivered = true;
         }
       }
     } finally {
@@ -523,6 +539,7 @@ export function createBot(cfg, { bot = new Bot(cfg.botToken), runTurn = runAgent
       if (transcription && !transcribed) await ctx.api.deleteMessage(chatId, transcription.message_id, presentationSignal(AbortSignal.timeout(15_000))).catch(() => {});
       turn.completed = true;
       if (running.get(chatId) === turn) running.delete(chatId);
+      await history?.finish({ status: signal.aborted ? 'aborted' : outcome, text: deliveredText, delivered, result });
     }
   }
 

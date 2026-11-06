@@ -170,6 +170,7 @@ export async function runClaudeTurn(opts) {
     let sessionId = opts.sessionId || '';
     let text = '';
     let model;
+    let providerId = null;
     let subtype;
     let isError = false;
     let inputTokens = 0;
@@ -195,7 +196,9 @@ export async function runClaudeTurn(opts) {
         opts.onEvent?.(ev);
         switch (ev.type) {
           case 'system':
+            if (['claude', 'codex', 'cursor', 'qwen'].includes(ev.provider_id)) providerId = ev.provider_id;
             if (ev.subtype === 'init') {
+              if (!providerId && ev.apiKeySource !== 'ext') providerId = 'claude';
               if (ev.session_id) sessionId = ev.session_id;
               if (ev.model) model = ev.model;
             }
@@ -252,6 +255,7 @@ export async function runClaudeTurn(opts) {
         sessionId,
         text: text.trim(),
         model,
+        providerId,
         subtype,
         isError: isError || code !== 0,
         exitCode: code,
