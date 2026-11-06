@@ -1,6 +1,6 @@
 /**
  * Экраны Telegram 1:1 с закрытым ядром (тексты + callback_data).
- * Источник: vendor/deobfuscated.js (Ph, Ky, mK, mE, autonomy, monitor, mcp…).
+ * Источник: vendor/UI-SCREENS.md / CONTRACT-*.md (эталон бывшего закрытого UI).
  */
 import { InlineKeyboard } from 'grammy';
 import { hasClaudeAuth, loadState, resolveModel } from '../state.mjs';

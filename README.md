@@ -2,8 +2,8 @@
 
 Платформа Telegram-агента на Linux (systemd). Репозиторий разделён на **ядро** и **обвязку**.
 
-Ветка **`open-core`**: ядро — открытый код в `.msb/bot/src/` (не минифицированный бандл).
-Подробности: [.msb/bot/OPEN-CORE.md](.msb/bot/OPEN-CORE.md). Откат: `MSB_USE_CLOSED_CORE=1`.
+Ветка **`open-core`**: ядро — открытый код в `.msb/bot/src/` (закрытый бандл снят).
+Подробности: [.msb/bot/OPEN-CORE.md](.msb/bot/OPEN-CORE.md).
 
 ## Два слоя
 

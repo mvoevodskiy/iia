@@ -154,6 +154,8 @@ copy_platform() {
     --exclude 'bot/ext/' \
     --exclude 'bot/run.mjs' \
     --exclude 'bot/systemd/' \
+    --exclude 'bot/vendor/index.closed.js' \
+    --exclude 'bot/vendor/deobfuscated.js' \
     "$SOURCE/.msb/" "$MSB_HOME/"
 
   # чистые маркеры
@@ -349,7 +351,7 @@ CORE_UNITS=(
   msb-engine-tick.timer
   msb-engine-tick.service
 )
-# НЕ ставим: jarvis-engine*, msb-base-pulse* (архив vendor/legacy-jarvis-os/).
+# НЕ ставим: jarvis-engine*, msb-base-pulse* (закрытый OS создателя снят).
 
 install_systemd() {
   log "systemd-юниты ядра"
@@ -415,13 +417,19 @@ enable_services() {
   systemctl enable --now msb-engine-tick.timer || warn "msb-engine-tick.timer"
   if [[ "$DRY_RUN" != "1" ]]; then
     /usr/bin/python3 -IS /usr/local/lib/msb-engine/cli.py setup || warn "msb-engine setup"
-    # На всякий случай mask vendor Jarvis, если файлы остались с прошлой жизни бокса
+    # Снести хвосты Jarvis/base-pulse, если остались с прошлой жизни бокса
     for u in jarvis-engine.path jarvis-engine.service jarvis-engine-tick.timer \
              jarvis-engine-tick.service jarvis-engine-update.path jarvis-engine-update.service \
              jarvis-engine-nft.service msb-base-pulse.timer msb-base-pulse.service; do
       systemctl disable --now "$u" 2>/dev/null || true
-      systemctl mask "$u" 2>/dev/null || true
+      systemctl unmask "$u" 2>/dev/null || true
+      rm -f "/etc/systemd/system/$u"
     done
+    rm -f /usr/local/sbin/jarvis-engine /etc/sudoers.d/jarvis-client
+    rm -rf /usr/local/lib/jarvis-engine /etc/jarvis-engine /var/lib/jarvis-engine \
+      /run/jarvis-engine /var/lib/jarvis-runtime /etc/jarvis-runtime-enrolled
+    rm -f "$MSB_HOME/bot/vendor/index.closed.js" "$MSB_HOME/bot/vendor/deobfuscated.js"
+    systemctl daemon-reload || true
   fi
 
   if [[ -n "$ENV_FILE" ]]; then

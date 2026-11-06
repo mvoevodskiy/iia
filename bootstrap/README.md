@@ -45,7 +45,7 @@ sudo ./bootstrap/install.sh --dry-run
 
 См. [MANIFEST.txt](MANIFEST.txt). Кратко: `.msb` **без** `bot/ext/` + `workspace-seed/` +
 systemd ядра + `msb-engine` + узкий sudoers + bind workspace→`bots/<id>/cwd` + `npm ci` + Claude Code CLI.
-Закрытый Jarvis OS — только архив `vendor/legacy-jarvis-os/` (не ставится).
+Закрытый Jarvis OS и бандл ядра не ставятся; на живом боксе — `migrate-from-jarvis.sh`.
 
 Обновления не затирают пользовательские файлы — [UPDATE-POLICY.md](UPDATE-POLICY.md).
 

@@ -36,8 +36,7 @@ systemd/msb-engine.path/.service + msb-engine-tick.*
 systemd/drop-ins/system-msb-bot.slice.d/
 etc/msb-tick/puller.conf  → /etc/msb-tick/puller.conf
 etc/sudoers.d/{msb-admin,agent-client,msb-tick,msb-engine}
-  # НЕ ставятся: jarvis-*, msb-base-pulse*, msb-full-rights (opt-in)
-  # Архив закрытого OS: vendor/legacy-jarvis-os/
+  # НЕ ставятся: jarvis-*, msb-base-pulse*, msb-full-rights (opt-in), закрытый бандл
   # Миграция живого бокса: bootstrap/migrate-from-jarvis.sh (purge)
 
 Создаётся на месте:

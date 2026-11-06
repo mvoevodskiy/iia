@@ -1,7 +1,6 @@
 # Rollback / снимки OS-обвязки
 
-Штатный путь — только **msb-engine**. Архив закрытого Jarvis лежит в
-`vendor/legacy-jarvis-os/` и **не** ставится bootstrap’ом.
+Штатный путь — только **msb-engine**. Закрытый Jarvis OS и бандл ядра сняты.
 
 ## Снимок на боксе
 
@@ -18,12 +17,4 @@ cp -a "$SNAP/units/"* /etc/systemd/system/ 2>/dev/null || true
 systemctl daemon-reload
 ```
 
-## Откат только бота (без OS)
-
-```bash
-# Environment бота / .env
-MSB_USE_CLOSED_CORE=1
-systemctl restart msb-bot@default
-```
-
-Это возвращает `vendor/index.closed.js` для Telegram-ядра; OS-helper остаётся `msb-engine`.
+Откат Telegram-ядра на закрытый бандл больше не поддерживается: `index.closed.js` удалён.

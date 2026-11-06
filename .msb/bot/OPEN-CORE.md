@@ -1,32 +1,21 @@
 # MSB open-core
 
-Открытая замена закрытого бандла `index.js` (Jarvis / Constructor Agent).
-
-## Зачем
-
-Закрытое ядро — один минифицированный файл ~3 МБ. Его нельзя нормально развивать:
-любое изменение обвязки строилось вокруг shim/патчей grammy без доступа внутрь.
-
-Ветка `open-core` держит **читаемое ядро** в `.msb/bot/src/` с тем же внешним
-контрактом (env, `state.json`, Claude CLI stream-json, overlay `run.mjs`).
+Читаемое ядро Constructor Agent в `.msb/bot/src/` (env, `state.json`, Claude CLI
+stream-json, overlay `run.mjs`). Закрытый бандл и Jarvis OS-обвязка сняты.
 
 ## Запуск
 
 ```bash
-# штатно (открытое ядро)
 node .msb/bot/index.js
-
-# откат к сохранённому бандлу
-MSB_USE_CLOSED_CORE=1 node .msb/bot/index.js
 ```
 
-systemd / bootstrap не меняются: `ExecStart=…/bot/index.js`.
+systemd / bootstrap: `ExecStart=…/bot/run.mjs` (или `index.js`).
 
 ## Структура
 
 ```
 .msb/bot/
-├── index.js              ← переключатель open/closed
+├── index.js              ← вход → src/main.mjs
 ├── src/
 │   ├── main.mjs
 │   ├── config.mjs / paths.mjs / state.mjs / heartbeat.mjs
@@ -35,9 +24,9 @@ systemd / bootstrap не меняются: `ExecStart=…/bot/index.js`.
 │   └── autonomy/         ← задачи + планировщик
 ├── tests/
 └── vendor/
-    ├── index.closed.js   ← исходный бандл (эталон поведения)
-    ├── deobfuscated.js   ← webcrack (для препарирования)
-    └── CONTRACT-*.md     ← снятые контракты подсистем
+    ├── CONTRACT-*.md     ← снятые контракты подсистем
+    ├── snippets/         ← вырезки при переносе
+    └── UI-*.md/.tsv      ← эталон UI
 ```
 
 ## Совместимость с обвязкой
@@ -58,8 +47,8 @@ systemd / bootstrap не меняются: `ExecStart=…/bot/index.js`.
 - **Мои боты**: list/add/remove через `sudo bot-ctl.sh` (без хаба создателя)
 - **Переменные окружения**: CRUD в `.env` бота + быстрые ключи
 - **Обновления**: только свой канал `MSB_OWN_UPDATES_URL` (apply — позже); vendor отключён
-- Ход агента Claude CLI, автономка, heartbeat, откат `MSB_USE_CLOSED_CORE=1`
-- **OS-обвязка**: `msb-engine` вместо `jarvis-engine` (IPC `~/.msb/engine/request`, state `/run/msb-engine/state.json`); см. `docs/tdr/msb-engine-os-replace.md`
+- Ход агента Claude CLI, автономка, heartbeat
+- **OS-обвязка**: `msb-engine` (IPC `~/.msb/engine/request`, state `/run/msb-engine/state.json`); см. `docs/tdr/msb-engine-os-replace.md`
 
 ## Обновления
 
@@ -78,7 +67,7 @@ systemd / bootstrap не меняются: `ExecStart=…/bot/index.js`.
 | SSH constructor API | overlay / локальный IP |
 | Own updates apply | после сервиса |
 
-Эталон поведения и строки UI — в `vendor/deobfuscated.js` и CHANGELOG.md.
+Эталон строк UI — в `vendor/UI-SCREENS.md` / `UI-BUTTONS.tsv` и CHANGELOG.md.
 
 ## Тесты
 
@@ -88,6 +77,5 @@ cd .msb/bot && npm test
 
 ## Политика обновлений
 
-Puller создателя тянул закрытый `bot/index.js` с их сервера. На open-core
-это ломает смысл ветки. Не включай stock puller против этой ветки, либо
-исключи `bot/**` из манифеста. Канал обвязки `overlay/msb-updates` — свой.
+Stock puller создателя на open-core не включаем (ломает смысл ветки), либо
+исключаем `bot/**` из манифеста. Канал обвязки `overlay/msb-updates` — свой.

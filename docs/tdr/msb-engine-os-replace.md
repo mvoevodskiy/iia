@@ -51,7 +51,7 @@
 2. Скрипт миграции `bootstrap/migrate-from-jarvis.sh`: останавливает/mask Jarvis units, ставит `msb-engine`, переносит request/state paths, сохраняет ботов и workspace.
 3. Бот open-core читает/пишет новый state; engines UI не падает при отсутствии Jarvis.
 4. `verify.sh` проверяет: binary, path unit, tick timer, sudoers узкий, nft опционален, нет `JARVIS_RUNTIME` enrollment blockers для наших ctl.
-5. Rollback: документ + возможность вернуть `MSB_USE_CLOSED_CORE=1` для **бота**; OS-rollback — re-enable masked units из `/usr/local/lib/msb-engine/rollback/` (снимок до миграции).
+5. Rollback OS: только ручной из `/usr/local/lib/msb-engine/rollback/` (снимок до миграции). Откат бота на закрытый бандл снят.
 
 ---
 
