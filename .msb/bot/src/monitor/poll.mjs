@@ -3,11 +3,11 @@
  * Навигация: [Мониторинг](./README.md) → [storage](./store.mjs), [digest](./digest.mjs).
  */
 import { loadMonitorConfig, saveMonitorConfig } from './config.mjs';
-import { appendItems, itemId, loadMeta, saveMeta } from './store.mjs';
+import { appendItems, itemId, updateMeta } from './store.mjs';
 
 export async function pollAllSources(env = process.env, { log = console.error } = {}) {
   const cfg = await loadMonitorConfig(env);
-  const meta = await loadMeta(env);
+  const pollTimes = {};
   const collected = [];
   const errors = [];
 
@@ -16,7 +16,7 @@ export async function pollAllSources(env = process.env, { log = console.error } 
       try {
         const items = await fetchRss(feed.url, 'rss', feed.url, feed.name);
         collected.push(...items);
-        meta.lastPollAt[`rss:${feed.url}`] = new Date().toISOString();
+        pollTimes[`rss:${feed.url}`] = new Date().toISOString();
         feed.lastError = null;
       } catch (err) {
         feed.lastError = err.message;
@@ -41,7 +41,7 @@ export async function pollAllSources(env = process.env, { log = console.error } 
         const url = `https://www.youtube.com/feeds/videos.xml?channel_id=${encodeURIComponent(channelId)}`;
         const items = await fetchRss(url, 'youtube', channelId, ch.name);
         collected.push(...items);
-        meta.lastPollAt[`youtube:${channelId}`] = new Date().toISOString();
+        pollTimes[`youtube:${channelId}`] = new Date().toISOString();
         ch.lastError = null;
       } catch (err) {
         ch.lastError = err.message;
@@ -61,7 +61,7 @@ export async function pollAllSources(env = process.env, { log = console.error } 
           items.push(...(await fetchRss(commits, 'github', `${repo.owner}/${repo.repo}`, repo.name)));
         }
         collected.push(...items);
-        meta.lastPollAt[`github:${repo.owner}/${repo.repo}`] = new Date().toISOString();
+        pollTimes[`github:${repo.owner}/${repo.repo}`] = new Date().toISOString();
         repo.lastError = null;
       } catch (err) {
         repo.lastError = err.message;
@@ -76,7 +76,7 @@ export async function pollAllSources(env = process.env, { log = console.error } 
       try {
         const items = await fetchTelegramPublic(ch.username, ch.name);
         collected.push(...items);
-        meta.lastPollAt[`telegram:${ch.username}`] = new Date().toISOString();
+        pollTimes[`telegram:${ch.username}`] = new Date().toISOString();
         ch.lastError = null;
       } catch (err) {
         ch.lastError = err.message;
@@ -93,7 +93,7 @@ export async function pollAllSources(env = process.env, { log = console.error } 
         if (!bearer) throw new Error('нужен X_BEARER_TOKEN в переменных окружения');
         const items = await fetchTwitter(acc.username, bearer, acc.name);
         collected.push(...items);
-        meta.lastPollAt[`twitter:${acc.username}`] = new Date().toISOString();
+        pollTimes[`twitter:${acc.username}`] = new Date().toISOString();
         acc.lastError = null;
       } catch (err) {
         acc.lastError = err.message;
@@ -105,7 +105,9 @@ export async function pollAllSources(env = process.env, { log = console.error } 
 
   await saveMonitorConfig(cfg, env);
   const added = await appendItems(collected, env);
-  await saveMeta(meta, env);
+  await updateMeta((meta) => {
+    meta.lastPollAt = { ...meta.lastPollAt, ...pollTimes };
+  }, env);
   log(`[msb/monitor] poll done: fetched=${collected.length} new=${added} errors=${errors.length}`);
   return { fetched: collected.length, added, errors, cfg };
 }

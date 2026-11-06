@@ -26,12 +26,39 @@ export async function loadMeta(env = process.env) {
   }
 }
 
-export async function saveMeta(meta, env = process.env) {
+const metaUpdates = globalThis[Symbol.for('msb.monitorMetaUpdates')] ||= new Map();
+
+function serializeMeta(env, operation) {
+  const file = metaPath(env);
+  const previous = metaUpdates.get(file) || Promise.resolve();
+  const update = previous.catch(() => {}).then(operation);
+  metaUpdates.set(file, update);
+  const release = () => { if (metaUpdates.get(file) === update) metaUpdates.delete(file); };
+  update.then(release, release);
+  return update;
+}
+
+async function writeMeta(meta, env) {
   await fs.mkdir(monitorDir(env), { recursive: true });
   const file = metaPath(env);
-  const tmp = `${file}.tmp`;
+  const tmp = `${file}.tmp.${process.pid}`;
   await fs.writeFile(tmp, `${JSON.stringify(meta, null, 2)}\n`);
   await fs.rename(tmp, file);
+}
+
+export function saveMeta(meta, env = process.env) {
+  return serializeMeta(env, () => writeMeta(meta, env));
+}
+
+// Hold the per-profile queue through the read, action and write. Mutators must
+// not call saveMeta/updateMeta themselves; a failed action never saves the mark.
+export function updateMeta(mutator, env = process.env) {
+  return serializeMeta(env, async () => {
+    const meta = await loadMeta(env);
+    const result = await mutator(meta);
+    await writeMeta(meta, env);
+    return result;
+  });
 }
 
 export async function appendItems(items, env = process.env) {
