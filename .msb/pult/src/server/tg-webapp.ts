@@ -50,8 +50,9 @@ export function initDataSignatureOk(initData: string, botToken: string): boolean
   const hash = params.get('hash');
   if (!hash || !/^[0-9a-f]{64}$/i.test(hash)) return false;
   params.delete('hash');
-  // signature — для сторонней проверки Ed25519, в HMAC не входит.
-  params.delete('signature');
+  // HMAC authenticates every received field except hash, including signature.
+  // Only the separate third-party Ed25519 algorithm excludes signature as well.
+  // https://core.telegram.org/bots/webapps#validating-data-received-via-the-mini-app
   const checkString = [...params.entries()]
     .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
     .map(([k, v]) => `${k}=${v}`)
