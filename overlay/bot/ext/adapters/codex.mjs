@@ -1,4 +1,5 @@
 import os from 'node:os';
+import profile from '../../shared/profile.cjs';
 import { findBin, runCli } from './run-cli.mjs';
 import { readEnvKey } from '../env.mjs';
 import { decodeExtSession, getSelectedModel, getSelectedEffort } from '../store.mjs';
@@ -74,7 +75,7 @@ export function parseCodexStdout(stdout) {
   };
 }
 
-export function buildCodexExecArgs({ model, effort, resumeId, forceHttp = true }) {
+export function buildCodexExecArgs({ model, effort, resumeId, forceHttp = true, httpProviderId }) {
   const args = [
     'exec',
     '--json',
@@ -83,7 +84,7 @@ export function buildCodexExecArgs({ model, effort, resumeId, forceHttp = true }
     '--skip-git-repo-check',
     '-c',
     'approval_policy="never"',
-    ...codexHttpProviderOverrides(forceHttp),
+    ...codexHttpProviderOverrides(forceHttp, httpProviderId),
   ];
   if (model) {
     args.push('-m', model);
@@ -137,8 +138,9 @@ async function execOnce({
   effort,
   resumeId,
   forceHttp,
+  httpProviderId,
 }) {
-  const args = buildCodexExecArgs({ model, effort, resumeId, forceHttp });
+  const args = buildCodexExecArgs({ model, effort, resumeId, forceHttp, httpProviderId });
   const res = await runCli(bin, args, {
     cwd,
     env: childEnv,
@@ -250,8 +252,12 @@ export async function runCodexTurn({ prompt, parsed, cwd, env, home = os.homedir
   }
 
   // HTTP-only provider — до первого хода, иначе 5× reconnect на WS.
+  let httpProviderId = profile.resolveProfile(env, home).codexHttpProviderId;
+  let forceHttp = true;
   try {
-    const tr = await ensureCodexStableTransport(home);
+    const tr = await ensureCodexStableTransport(home, env);
+    httpProviderId = tr.providerId;
+    forceHttp = !tr.skippedProviderSwitch;
     if (tr.changed) {
       console.error(
         `[msb/ext/codex] transport → ${tr.providerId}${tr.baseUrl ? ` (${tr.baseUrl})` : ''}`,
@@ -282,7 +288,8 @@ export async function runCodexTurn({ prompt, parsed, cwd, env, home = os.homedir
       model,
       effort,
       resumeId,
-      forceHttp: true,
+      forceHttp,
+      httpProviderId,
     });
 
   const raw = await run(resumeRequested);

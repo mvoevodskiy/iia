@@ -1,33 +1,33 @@
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import profile from '../shared/profile.cjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 export function botId(env = process.env) {
-  const id = (env.MSB_BOT_ID || 'default').trim();
-  return /^[a-zA-Z0-9_-]{1,32}$/.test(id) ? id : 'default';
+  return profile.botId(env);
 }
 
-export function msbRoot(home = os.homedir()) {
-  return path.join(home, '.msb');
+export function msbRoot(home, env = process.env) {
+  return profile.resolveProfile(env, home).root;
 }
 
-export function botDir(env = process.env, home = os.homedir()) {
-  return path.join(msbRoot(home), 'bots', botId(env));
+export function botDir(env = process.env, home) {
+  return path.join(msbRoot(home, env), 'bots', botId(env));
 }
 
-export function botStatePath(env = process.env, home = os.homedir()) {
+export function botStatePath(env = process.env, home) {
   return path.join(botDir(env, home), 'state.json');
 }
 
 /** Локальный префикс npm для Codex/Qwen — без sudo. */
-export function extToolsPrefix(home = os.homedir()) {
-  return path.join(msbRoot(home), 'ext-tools');
+export function extToolsPrefix(home, env = process.env) {
+  return path.join(msbRoot(home, env), 'ext-tools');
 }
 
-export function extToolsBin(home = os.homedir()) {
-  return path.join(extToolsPrefix(home), 'bin');
+export function extToolsBin(home, env = process.env) {
+  return path.join(extToolsPrefix(home, env), 'bin');
 }
 
 export function botPackageRoot() {

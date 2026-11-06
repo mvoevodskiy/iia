@@ -1,3 +1,4 @@
+import profile from '../shared/profile.cjs';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -407,8 +408,8 @@ export async function buildLocalSshMenu(env = process.env) {
       ? `Сейчас локальный адрес: <code>${esc(host)}</code>\nСтатус SSH читается <b>на этой машине</b>, без подключения с хаба.`
       : 'Сейчас не задан — используется только конструктор (внешний IP).',
     '',
-    'Укажи IPv4/hostname этой машины в LAN (например <code>192.168.1.10</code> или <code>127.0.0.1</code>).',
-    'Переменная: <code>MSB_LOCAL_SSH_HOST</code> (её же можно задать в «🔑 Переменные окружения»).',
+    `Укажи IPv4/hostname этой машины в LAN (например <code>${profile.resolveProfile(env).lanExample}</code> или <code>127.0.0.1</code>).`,
+    `Переменная: <code>${profile.profileEnvKey('MSB_LOCAL_SSH_HOST', env)}</code> (её же можно задать в «🔑 Переменные окружения»).`,
   ];
   const rows = [[btn(host ? '✏️ Изменить' : '➕ Указать IP', 'ext:ssh:local:edit')]];
   if (host) rows.push([btn('🗑 Сбросить', 'ext:ssh:local:clear')]);
@@ -416,12 +417,12 @@ export async function buildLocalSshMenu(env = process.env) {
   return { text: lines.join('\n'), keyboard: keyboard(rows) };
 }
 
-export function localSshPrompt() {
+export function localSshPrompt(env = process.env) {
   return {
     text:
       '<b>🖧 Локальный SSH IP</b>\n\n' +
       'Пришли IPv4 или hostname одной строкой.\n' +
-      'Примеры: <code>192.168.1.10</code>, <code>127.0.0.1</code>\n\n' +
+      `Примеры: <code>${profile.resolveProfile(env).lanExample}</code>, <code>127.0.0.1</code>\n\n` +
       'После сохранения статус SSH читается локально. Управление ключами и firewall в этом меню пока недоступно.',
     keyboard: keyboard([[btn('✖️ Отмена', 'ext:ssh:local')]]),
   };

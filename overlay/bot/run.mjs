@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import './shared/preload.mjs';
 /**
  * Точка входа бота с расширением провайдеров (Cursor / Codex / Qwen).
  * Бандл index.js не меняем: PATH-shim + патч Bot.prototype до загрузки.

@@ -1,6 +1,16 @@
 #!/usr/bin/env node
 'use strict';
 
+// Guard the selected release root before the legacy platform code reads config.
+if (require.main === module) {
+  const runtimeProfile = require('./bot/shared/profile.cjs');
+  runtimeProfile.initialize();
+  if (runtimeProfile.shouldSkipVendorUpdate('puller', process.env, __dirname)) {
+    console.error('[msb/puller] open-core detected — vendor puller skipped');
+    process.exit(0);
+  }
+}
+
 // ============================================================
 // puller.cjs — Bundle pull agent (v1.2, timer-driven, graduated signal)
 //

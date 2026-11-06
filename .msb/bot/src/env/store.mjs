@@ -4,6 +4,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { botRoot, ensureDir } from '../paths.mjs';
+import profile from '../../shared/profile.cjs';
 
 /** Нельзя удалить базовые ключи юнита. */
 export const PROTECTED_KEYS = new Set([
@@ -16,6 +17,9 @@ export const PROTECTED_KEYS = new Set([
   'ADMIN_ID',
   'OWNER_USER_ID',
 ]);
+for (const key of [...PROTECTED_KEYS]) {
+  if (key.startsWith('MSB_')) PROTECTED_KEYS.add(`IIA_${key.slice(4)}`);
+}
 
 export const QUICK_KEYS = [
   { key: 'DEEPGRAM_API_KEY', label: 'Deepgram' },
@@ -99,7 +103,7 @@ export async function setEnvKey(key, value, env = process.env) {
   const tmp = `${file}.tmp.${process.pid}`;
   await fs.writeFile(tmp, body, { mode: 0o600 });
   await fs.rename(tmp, file);
-  env[key] = value;
+  profile.setEnvValue(env, key, value);
   return { file, key };
 }
 
@@ -112,6 +116,6 @@ export async function deleteEnvKey(key, env = process.env) {
   const tmp = `${file}.tmp.${process.pid}`;
   await fs.writeFile(tmp, `${kept.join('\n').replace(/\n*$/, '')}\n`, { mode: 0o600 });
   await fs.rename(tmp, file);
-  delete env[key];
+  profile.setEnvValue(env, key, undefined);
   return { file, key };
 }

@@ -1,3 +1,4 @@
+import profile from '../../../shared/profile.cjs';
 /**
  * Системные экраны: обновления, перезапуск, SSH и STT.
  * Навигация: [Telegram](../README.md).
@@ -36,7 +37,7 @@ export async function updatesScreen() {
 
 Vendor-канал создателя закрытого ядра <b>отключён</b>.
 
-Свой сервис: <code>MSB_OWN_UPDATES_URL</code>
+Свой сервис: <code>${profile.profileEnvKey('MSB_OWN_UPDATES_URL')}</code>
 Статус: ${escapeHtml(st.message)}
 Установка обновлений через меню пока не реализована.
 ${BLANK}`,

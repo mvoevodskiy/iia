@@ -2,19 +2,16 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { getProvider } from './providers.mjs';
-
-function botId(env = process.env) {
-  const id = (env.MSB_BOT_ID || 'default').trim();
-  return /^[a-zA-Z0-9_-]{1,32}$/.test(id) ? id : 'default';
-}
+import { botDir, msbRoot } from './paths.mjs';
+import profile from '../shared/profile.cjs';
 
 /** Per-bot .env — как у штатного setEnvVar при MSB_BOT_ID. */
-export function botEnvPath(env = process.env, home = os.homedir()) {
-  return path.join(home, '.msb', 'bots', botId(env), '.env');
+export function botEnvPath(env = process.env, home = env.HOME || os.homedir()) {
+  return path.join(botDir(env, home), '.env');
 }
 
-export function globalEnvPath(home = os.homedir()) {
-  return path.join(home, '.msb', '.env');
+export function globalEnvPath(home, env = process.env) {
+  return path.join(msbRoot(home, env), '.env');
 }
 
 function parseEnvFile(text) {
@@ -41,12 +38,15 @@ function serializeEnv(rows) {
     .replace(/\n*$/, '\n');
 }
 
-export async function readEnvKey(key, env = process.env, home = os.homedir()) {
-  if (env[key]?.trim()) return env[key].trim();
-  for (const file of [botEnvPath(env, home), globalEnvPath(home)]) {
+export async function readEnvKey(key, env = process.env, home = env.HOME || os.homedir()) {
+  const value = profile.envValue(env, key);
+  if (value?.trim()) return value.trim();
+  if (key.startsWith('MSB_') && value !== undefined) return '';
+  const keys = key.startsWith('MSB_') ? [key, `IIA_${key.slice(4)}`] : [key];
+  for (const file of [botEnvPath(env, home), globalEnvPath(home, env)]) {
     try {
       const rows = parseEnvFile(await fs.readFile(file, 'utf8'));
-      const hit = rows.find((r) => r.kind === 'kv' && r.key === key);
+      const hit = keys.map(candidate => rows.find(r => r.kind === 'kv' && r.key === candidate)).find(Boolean);
       if (hit?.value?.trim()) return hit.value.trim();
     } catch (err) {
       if (err?.code !== 'ENOENT') throw err;
@@ -55,7 +55,7 @@ export async function readEnvKey(key, env = process.env, home = os.homedir()) {
   return '';
 }
 
-export async function writeEnvKey(key, value, env = process.env, home = os.homedir()) {
+export async function writeEnvKey(key, value, env = process.env, home = env.HOME || os.homedir()) {
   const file = botEnvPath(env, home);
   await fs.mkdir(path.dirname(file), { recursive: true });
   let rows = [];
@@ -76,11 +76,11 @@ export async function writeEnvKey(key, value, env = process.env, home = os.homed
   const tmp = `${file}.tmp.${process.pid}`;
   await fs.writeFile(tmp, serializeEnv(rows), { mode: 0o600 });
   await fs.rename(tmp, file);
-  env[key] = trimmed;
+  profile.setEnvValue(env, key, trimmed);
   return trimmed;
 }
 
-export async function providerConfigured(provider, env = process.env, home = os.homedir()) {
+export async function providerConfigured(provider, env = process.env, home = env.HOME || os.homedir()) {
   // Codex: штатный ChatGPT login в ~/.codex/auth.json — без копирования токенов в .env
   if (provider.id === 'codex') {
     const { hasNativeCodexAuth } = await import('./codex-native.mjs');
@@ -93,14 +93,14 @@ export async function providerConfigured(provider, env = process.env, home = os.
   return false;
 }
 
-export async function configuredMap(env = process.env, home = os.homedir()) {
+export async function configuredMap(env = process.env, home = env.HOME || os.homedir()) {
   const { PROVIDERS } = await import('./providers.mjs');
   const out = {};
   for (const p of PROVIDERS) out[p.id] = await providerConfigured(p, env, home);
   return out;
 }
 
-export async function saveProviderSecret(providerId, secret, env = process.env, home = os.homedir()) {
+export async function saveProviderSecret(providerId, secret, env = process.env, home = env.HOME || os.homedir()) {
   const p = getProvider(providerId);
   if (!p) throw new Error(`unknown provider: ${providerId}`);
   if (p.authViaStock) throw new Error('claude auth goes through stock menu');

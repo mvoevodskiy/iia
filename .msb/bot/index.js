@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import './shared/preload.mjs';
 /**
  * Точка входа MSB.
  *

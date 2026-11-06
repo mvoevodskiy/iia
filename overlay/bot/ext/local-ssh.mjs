@@ -11,11 +11,13 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
-import { globalEnvPath, writeEnvKey } from './env.mjs';
+import { botEnvPath, globalEnvPath, writeEnvKey } from './env.mjs';
+import { msbRoot } from './paths.mjs';
+import profile from '../shared/profile.cjs';
 
 const execFileAsync = promisify(execFile);
 
-export const LOCAL_SSH_ENV_KEYS = ['MSB_LOCAL_SSH_HOST', 'LOCAL_SSH_HOST'];
+export const LOCAL_SSH_ENV_KEYS = ['MSB_LOCAL_SSH_HOST', 'IIA_LOCAL_SSH_HOST', 'LOCAL_SSH_HOST'];
 export const LOCAL_SSH_PRIMARY_KEY = 'MSB_LOCAL_SSH_HOST';
 
 const pendingLocalIp = new Map(); // userId -> { chatId, messageId? }
@@ -48,7 +50,7 @@ export function isValidLocalSshHost(raw) {
 }
 
 export function constructorBaseUrl(env = process.env) {
-  const sync = String(env.SYNC_URL || env.MSB_SYNC_URL || '').trim();
+  const sync = String(env.SYNC_URL || profile.envValue(env, 'MSB_SYNC_URL') || '').trim();
   if (!sync) return '';
   return sync.replace(/\/api\/sync\/?$/, '');
 }
@@ -91,7 +93,7 @@ export async function isLocalTarget(host, env = process.env) {
   const locals = await listLocalIps();
   if (locals.has(host) || locals.has(h)) return true;
   // явный флаг «всегда локально»
-  if (env.MSB_LOCAL_SSH_FORCE_LOCAL === '1') return true;
+  if (profile.envValue(env, 'MSB_LOCAL_SSH_FORCE_LOCAL') === '1') return true;
   return false;
 }
 
@@ -177,8 +179,8 @@ async function ufwStatus() {
   }
 }
 
-async function listBotIds(home = os.homedir()) {
-  const dir = path.join(home, '.msb', 'bots');
+async function listBotIds(home, env = process.env) {
+  const dir = path.join(msbRoot(home, env), 'bots');
   try {
     const ents = await fs.readdir(dir, { withFileTypes: true });
     return ents.filter((e) => e.isDirectory()).map((e) => e.name).sort((a, b) => {
@@ -217,15 +219,15 @@ export function buildAddTokenFileBody({ botToken, ownerUserId } = {}) {
   return `${lines.join('\n')}\n`;
 }
 
-async function writeAddTokenFile(botId, body, home = os.homedir()) {
-  const dir = path.join(home, '.msb', 'tmp');
+async function writeAddTokenFile(botId, body, home, env = process.env) {
+  const dir = path.join(msbRoot(home, env), 'tmp');
   await fs.mkdir(dir, { recursive: true, mode: 0o700 });
   const file = path.join(dir, `add-bot-${botId}.${process.pid}.env`);
   await fs.writeFile(file, body, { mode: 0o600 });
   return file;
 }
 
-async function localAddBot({ botId, botToken, ownerUserId, home = os.homedir(), execFile = execFileAsync } = {}) {
+async function localAddBot({ botId, botToken, ownerUserId, env = process.env, home = env.HOME || os.homedir(), execFile = execFileAsync } = {}) {
   if (!isValidBotId(botId) || botId === 'default' || botId === 'all') {
     const err = new Error(`некорректный botId: ${botId}`);
     err.status = 400;
@@ -237,7 +239,7 @@ async function localAddBot({ botId, botToken, ownerUserId, home = os.homedir(), 
     err.status = 400;
     throw err;
   }
-  const existing = await listBotIds(home);
+  const existing = await listBotIds(home, env);
   if (existing.includes(botId)) {
     const err = new Error(`бот ${botId} уже есть`);
     err.status = 409;
@@ -247,6 +249,7 @@ async function localAddBot({ botId, botToken, ownerUserId, home = os.homedir(), 
     botId,
     buildAddTokenFileBody({ botToken: token, ownerUserId }),
     home,
+    env,
   );
   try {
     const { stdout, stderr } = await execFile(
@@ -268,13 +271,13 @@ async function localAddBot({ botId, botToken, ownerUserId, home = os.homedir(), 
   }
 }
 
-async function localRemoveBot({ botId, home = os.homedir(), execFile = execFileAsync } = {}) {
+async function localRemoveBot({ botId, env = process.env, home = env.HOME || os.homedir(), execFile = execFileAsync } = {}) {
   if (!isValidBotId(botId) || botId === 'default' || botId === 'all') {
     const err = new Error(`нельзя удалить botId: ${botId}`);
     err.status = 400;
     throw err;
   }
-  const existing = await listBotIds(home);
+  const existing = await listBotIds(home, env);
   if (!existing.includes(botId)) {
     const err = new Error(`бот ${botId} не найден`);
     err.status = 404;
@@ -304,10 +307,10 @@ async function jsonResponse(status, data) {
 
 export async function handleLocalConstructorRequest(url, init = {}, opts = {}) {
   const env = opts.env || process.env;
-  const home = opts.home || os.homedir();
+  const home = opts.home || env.HOME || os.homedir();
   const host = getLocalSshHost(env);
   if (!host) {
-    return jsonResponse(503, { ok: false, error: 'MSB_LOCAL_SSH_HOST не задан' });
+    return jsonResponse(503, { ok: false, error: `${profile.profileEnvKey(LOCAL_SSH_PRIMARY_KEY, env)} не задан` });
   }
 
   const u = new URL(String(url));
@@ -326,7 +329,7 @@ export async function handleLocalConstructorRequest(url, init = {}, opts = {}) {
     return jsonResponse(501, {
       ok: false,
       error:
-        `MSB_LOCAL_SSH_HOST=${host} не является адресом этой машины. ` +
+        `${profile.profileEnvKey(LOCAL_SSH_PRIMARY_KEY, env)}=${host} не является адресом этой машины. ` +
         'Пока поддерживается только локальный IP/hostname (127.0.0.1, LAN-адрес сервера).',
     });
   }
@@ -413,7 +416,7 @@ export async function handleLocalConstructorRequest(url, init = {}, opts = {}) {
     }
 
     if (u.pathname === '/api/iia/multibot/list' && method === 'GET') {
-      const ids = await listBotIds(home);
+      const ids = await listBotIds(home, env);
       const bots = [];
       for (const botId of ids) {
         bots.push({ botId, active: await botActive(botId) });
@@ -427,7 +430,7 @@ export async function handleLocalConstructorRequest(url, init = {}, opts = {}) {
       const ownerUserId = body?.ownerUserId != null ? String(body.ownerUserId).trim() : '';
       try {
         const execFile = opts.execFile || execFileAsync;
-        const result = await localAddBot({ botId, botToken, ownerUserId, home, execFile });
+        const result = await localAddBot({ botId, botToken, ownerUserId, home, env, execFile });
         return jsonResponse(200, { ok: true, botId: result.botId, local_ssh: true });
       } catch (err) {
         return jsonResponse(err?.status || 500, {
@@ -441,7 +444,7 @@ export async function handleLocalConstructorRequest(url, init = {}, opts = {}) {
       const botId = String(body?.botId || '').trim();
       try {
         const execFile = opts.execFile || execFileAsync;
-        const result = await localRemoveBot({ botId, home, execFile });
+        const result = await localRemoveBot({ botId, home, env, execFile });
         return jsonResponse(200, { ok: true, botId: result.botId, local_ssh: true });
       } catch (err) {
         return jsonResponse(err?.status || 500, {
@@ -477,17 +480,17 @@ export function installLocalSshFetchPatch(env = process.env) {
 }
 
 /** Подтянуть MSB_LOCAL_SSH_HOST из файлов .env в process.env (если ещё пусто). */
-export async function hydrateLocalSshHost(env = process.env, home = os.homedir()) {
+export async function hydrateLocalSshHost(env = process.env, home = env.HOME || os.homedir()) {
   if (getLocalSshHost(env)) return getLocalSshHost(env);
-  for (const file of [path.join(home, '.msb', 'bots', env.MSB_BOT_ID || 'default', '.env'), globalEnvPath(home)]) {
+  for (const file of [botEnvPath(env, home), globalEnvPath(home, env)]) {
     try {
       const text = await fs.readFile(file, 'utf8');
       for (const line of text.split(/\n/)) {
-        const m = line.match(/^(?:MSB_LOCAL_SSH_HOST|LOCAL_SSH_HOST)=(.*)$/);
+        const m = line.match(/^(MSB_LOCAL_SSH_HOST|IIA_LOCAL_SSH_HOST|LOCAL_SSH_HOST)=(.*)$/);
         if (!m) continue;
-        const v = m[1].trim().replace(/^["']|["']$/g, '');
+        const v = m[2].trim().replace(/^["']|["']$/g, '');
         if (!v) continue;
-        env[LOCAL_SSH_PRIMARY_KEY] = v;
+        profile.setEnvValue(env, m[1], v);
         return v;
       }
     } catch (err) {
@@ -497,23 +500,23 @@ export async function hydrateLocalSshHost(env = process.env, home = os.homedir()
   return '';
 }
 
-export async function setLocalSshHost(value, env = process.env, home = os.homedir()) {
+export async function setLocalSshHost(value, env = process.env, home = env.HOME || os.homedir()) {
   const v = String(value || '').trim();
   if (v && !isValidLocalSshHost(v)) {
     throw new Error('Нужен IPv4 или hostname (например 192.168.1.10 или 127.0.0.1)');
   }
   // в per-bot .env — подхватывает EnvironmentFile; в process — сразу
-  await writeEnvKey(LOCAL_SSH_PRIMARY_KEY, v, env, home);
+  const key = profile.profileEnvKey(LOCAL_SSH_PRIMARY_KEY, env);
+  await writeEnvKey(key, v, env, home);
   // зеркало в глобальный .env (bootstrap-env), без затирания прочих ключей
-  await upsertGlobalEnvKey(LOCAL_SSH_PRIMARY_KEY, v, home);
-  if (v) env[LOCAL_SSH_PRIMARY_KEY] = v;
-  else delete env[LOCAL_SSH_PRIMARY_KEY];
+  await upsertGlobalEnvKey(key, v, home, env);
+  profile.setEnvValue(env, key, v || undefined);
   delete env.LOCAL_SSH_HOST;
   return v;
 }
 
-async function upsertGlobalEnvKey(key, value, home = os.homedir()) {
-  const file = globalEnvPath(home);
+async function upsertGlobalEnvKey(key, value, home, env = process.env) {
+  const file = globalEnvPath(home, env);
   let text = '';
   try {
     text = await fs.readFile(file, 'utf8');

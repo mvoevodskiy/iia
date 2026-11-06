@@ -1,3 +1,4 @@
+import profile from '../shared/profile.cjs';
 import { registerEngineProviderView } from './engine-menu.mjs';
 /**
  * Хуки в grammy Bot без правки бандла index.js.
@@ -604,7 +605,7 @@ async function handleLocalSshIpMessage(bot, msg) {
   if (!isValidLocalSshHost(text)) {
     await bot.api.sendMessage(
       chatId,
-      'Не похоже на IPv4/hostname. Пример: <code>192.168.1.10</code>',
+      `Не похоже на IPv4/hostname. Пример: <code>${profile.resolveProfile().lanExample}</code>`,
       { parse_mode: 'HTML' },
     );
     return true;

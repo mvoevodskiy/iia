@@ -1,3 +1,4 @@
+import profile from '../../../shared/profile.cjs';
 /**
  * Автономка: задачи, история, таймеры и сохранённые права.
  * Навигация: [Telegram](../README.md).
@@ -93,7 +94,7 @@ export function autonomyHistoryScreen() {
   return {
     text: `🕓 <b>История</b>
 
-Просмотр журнала через меню пока не подключён. Прогоны сохраняются в <code>~/.msb/autonomy/runs.jsonl</code>.
+Просмотр журнала через меню пока не подключён. Прогоны сохраняются в <code>~/${profile.resolveProfile().rootLeaf}/autonomy/runs.jsonl</code>.
 ${BLANK}`,
     keyboard: new InlineKeyboard().text('« Назад', 'auto:home'),
   };

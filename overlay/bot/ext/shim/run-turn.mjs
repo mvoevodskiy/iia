@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import '../../shared/preload.mjs';
 /**
  * Точка входа shim `claude`: либо настоящий Claude Code, либо адаптер Cursor/Codex/Qwen
  * с эмуляцией stream-json для парсера бандла.
