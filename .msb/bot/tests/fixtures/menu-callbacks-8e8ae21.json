@@ -27,6 +27,7 @@
       "settings:ssh",
       "settings:restart",
       "settings:stt",
+      "settings:pult",
       "settings:updates",
       "settings:back"
     ],
