@@ -2,7 +2,7 @@
  * Сбор источников мониторинга (RSS / YouTube RSS / GitHub Atom / TG public / X).
  * Навигация: [Мониторинг](./README.md) → [storage](./store.mjs), [digest](./digest.mjs).
  */
-import { loadMonitorConfig, saveMonitorConfig } from './config.mjs';
+import { loadMonitorConfig, updateMonitorConfig } from './config.mjs';
 import { appendItems, itemId, updateMeta } from './store.mjs';
 
 export async function pollAllSources(env = process.env, { log = console.error } = {}) {
@@ -10,6 +10,7 @@ export async function pollAllSources(env = process.env, { log = console.error } 
   const pollTimes = {};
   const collected = [];
   const errors = [];
+  const sourceUpdates = [];
 
   if (cfg.rss.enabled) {
     for (const feed of cfg.rss.feeds.filter((f) => f.enabled !== false)) {
@@ -23,6 +24,7 @@ export async function pollAllSources(env = process.env, { log = console.error } 
         errors.push({ type: 'rss', id: feed.url, error: err.message });
         log(`[msb/monitor] rss fail ${feed.url}: ${err.message}`);
       }
+      sourceUpdates.push({ type: 'rss', key: feed.url, addedAt: feed.addedAt, lastError: feed.lastError });
     }
   }
 
@@ -34,7 +36,6 @@ export async function pollAllSources(env = process.env, { log = console.error } 
           channelId = await resolveYoutubeHandle(ch.handle);
           if (channelId) {
             ch.channelId = channelId;
-            await saveMonitorConfig(cfg, env);
           }
         }
         if (!channelId) throw new Error('нет channelId — укажи /channel/UC… или @handle');
@@ -48,6 +49,7 @@ export async function pollAllSources(env = process.env, { log = console.error } 
         errors.push({ type: 'youtube', id: ch.name, error: err.message });
         log(`[msb/monitor] youtube fail ${ch.name}: ${err.message}`);
       }
+      sourceUpdates.push({ type: 'youtube', key: ch.handle || ch.channelId || ch.name, addedAt: ch.addedAt, lastError: ch.lastError, channelId: ch.channelId });
     }
   }
 
@@ -68,6 +70,7 @@ export async function pollAllSources(env = process.env, { log = console.error } 
         errors.push({ type: 'github', id: repo.name, error: err.message });
         log(`[msb/monitor] github fail ${repo.name}: ${err.message}`);
       }
+      sourceUpdates.push({ type: 'github', key: `${repo.owner}/${repo.repo}`, addedAt: repo.addedAt, lastError: repo.lastError });
     }
   }
 
@@ -83,6 +86,7 @@ export async function pollAllSources(env = process.env, { log = console.error } 
         errors.push({ type: 'telegram', id: ch.username, error: err.message });
         log(`[msb/monitor] telegram fail ${ch.username}: ${err.message}`);
       }
+      sourceUpdates.push({ type: 'telegram', key: ch.username, addedAt: ch.addedAt, lastError: ch.lastError });
     }
   }
 
@@ -100,16 +104,36 @@ export async function pollAllSources(env = process.env, { log = console.error } 
         errors.push({ type: 'twitter', id: acc.username, error: err.message });
         log(`[msb/monitor] twitter fail ${acc.username}: ${err.message}`);
       }
+      sourceUpdates.push({ type: 'twitter', key: acc.username, addedAt: acc.addedAt, lastError: acc.lastError });
     }
   }
 
-  await saveMonitorConfig(cfg, env);
+  await updateMonitorConfig((current) => mergeSourceUpdates(current, sourceUpdates), env);
   const added = await appendItems(collected, env);
   await updateMeta((meta) => {
     meta.lastPollAt = { ...meta.lastPollAt, ...pollTimes };
   }, env);
   log(`[msb/monitor] poll done: fetched=${collected.length} new=${added} errors=${errors.length}`);
   return { fetched: collected.length, added, errors, cfg };
+}
+
+function mergeSourceUpdates(cfg, updates) {
+  const buckets = {
+    rss: [cfg.rss.feeds, (item) => item.url],
+    youtube: [cfg.youtube.channels, (item) => item.handle || item.channelId || item.name],
+    github: [cfg.github.repos, (item) => `${item.owner}/${item.repo}`],
+    telegram: [cfg.telegram.channels, (item) => item.username],
+    twitter: [cfg.twitter.accounts, (item) => item.username],
+  };
+  for (const update of updates) {
+    const [list, key] = buckets[update.type];
+    const matches = list.filter((entry) => key(entry) === update.key && entry.addedAt === update.addedAt);
+    if (matches.length !== 1) continue;
+    matches[0].lastError = update.lastError;
+    if (update.type === 'youtube' && update.channelId && !matches[0].channelId) {
+      matches[0].channelId = update.channelId;
+    }
+  }
 }
 
 async function fetchText(url) {

@@ -5,8 +5,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { addSourceFromInput, loadMonitorConfig, saveMonitorConfig } from '../src/monitor/config.mjs';
-import { maybeSendDigest } from '../src/monitor/digest.mjs';
+import { addSourceFromInput, loadMonitorConfig, removeSource, saveMonitorConfig } from '../src/monitor/config.mjs';
+import { maybeSendDigest, updateDigestSettings } from '../src/monitor/digest.mjs';
 import { pollAllSources } from '../src/monitor/poll.mjs';
 import { appendItems, loadMeta } from '../src/monitor/store.mjs';
 import { saveState } from '../src/state.mjs';
@@ -59,6 +59,66 @@ test('a poll started before delivery cannot erase its digest marker', async (t) 
   assert.equal(meta.lastPollAt[`rss:${url}`], '2026-11-06T06:00:00.000Z');
   assert.equal((await send()).reason, 'already');
   assert.equal(sent, 1);
+});
+
+test('a slow poll preserves source edits and digest settings made while it waits', async (t) => {
+  const env = await fixture(t);
+  const first = 'https://example.invalid/first.xml';
+  const second = 'https://example.invalid/second.xml';
+  await addSourceFromInput(first, env);
+  const entered = gate();
+  const finish = gate();
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => {
+    entered.release();
+    await finish.promise;
+    return { ok: true, text: async () => '<rss><channel></channel></rss>' };
+  };
+  t.after(() => { globalThis.fetch = originalFetch; });
+  const polling = pollAllSources(env, { log() {} });
+  await entered.promise;
+  await addSourceFromInput(second, env);
+  await removeSource('rss', first, env);
+  await updateDigestSettings({ enabled: false, topN: 15 }, env);
+  finish.release();
+  await polling;
+  const cfg = await loadMonitorConfig(env);
+  assert.deepEqual(cfg.rss.feeds.map((feed) => feed.url), [second]);
+  assert.equal(cfg.digest.enabled, false);
+  assert.equal(cfg.digest.topN, 15);
+});
+
+test('concurrent source additions do not overwrite each other', async (t) => {
+  const env = await fixture(t);
+  const urls = ['https://example.invalid/a.xml', 'https://example.invalid/b.xml'];
+  await Promise.all(urls.map((url) => addSourceFromInput(url, env)));
+  assert.deepEqual((await loadMonitorConfig(env)).rss.feeds.map((feed) => feed.url).sort(), urls);
+});
+
+test('poll still records source errors, recovery and resolved YouTube channel IDs', async (t) => {
+  const env = await fixture(t);
+  const url = 'https://example.invalid/feed.xml';
+  await addSourceFromInput(url, env);
+  await addSourceFromInput('https://youtube.com/@fixturehandle', env);
+  const originalFetch = globalThis.fetch;
+  let failRss = true;
+  globalThis.fetch = async (target) => {
+    if (target === url && failRss) return { ok: false, status: 404 };
+    if (target === 'https://www.youtube.com/@fixturehandle') {
+      return { ok: true, text: async () => '"channelId":"UCabcdefghijabcdefghijab"' };
+    }
+    return { ok: true, text: async () => '<rss><channel></channel></rss>' };
+  };
+  t.after(() => { globalThis.fetch = originalFetch; });
+  await pollAllSources(env, { log() {} });
+  let cfg = await loadMonitorConfig(env);
+  assert.equal(cfg.rss.feeds[0].lastError, 'HTTP 404');
+  assert.equal(cfg.youtube.channels[0].channelId, 'UCabcdefghijabcdefghijab');
+  assert.equal(cfg.youtube.channels[0].lastError, null);
+  failRss = false;
+  await pollAllSources(env, { log() {} });
+  cfg = await loadMonitorConfig(env);
+  assert.equal(cfg.rss.feeds[0].lastError, null);
 });
 
 test('concurrent scheduled deliveries send only once', async (t) => {

@@ -1,4 +1,4 @@
-import { loadMonitorConfig, saveMonitorConfig } from './config.mjs';
+import { loadMonitorConfig, updateMonitorConfig } from './config.mjs';
 import { listRecentItems, updateMeta } from './store.mjs';
 import { loadState } from '../state.mjs';
 
@@ -50,10 +50,11 @@ export async function maybeSendDigest({ api, adminId, force = false, env = proce
 }
 
 export async function updateDigestSettings(patch, env = process.env) {
-  const cfg = await loadMonitorConfig(env);
-  cfg.digest = { ...cfg.digest, ...patch };
-  await saveMonitorConfig(cfg, env);
-  return cfg.digest;
+  return updateMonitorConfig((cfg) => {
+    const delta = typeof patch === 'function' ? patch(cfg.digest) : patch;
+    cfg.digest = { ...cfg.digest, ...delta };
+    return cfg.digest;
+  }, env);
 }
 
 function clockInTz(date, tz) {

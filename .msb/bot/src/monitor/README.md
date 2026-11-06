@@ -7,7 +7,7 @@
 
 | Задача | Файл → функция |
 |---|---|
-| Разобрать ссылку и сохранить источник | [config.mjs](config.mjs): `classifySourceInput`, `addSourceFromInput`, `removeSource` |
+| Разобрать ссылку и сохранить источник | [config.mjs](config.mjs): `classifySourceInput`, `addSourceFromInput`, `removeSource`, `updateMonitorConfig` |
 | Безопасная длина идентификатора кнопки источника | [source-ref.mjs](source-ref.mjs): `sourceCallbackData`, `sourceToken` |
 | Получить материалы | [poll.mjs](poll.mjs): `pollAllSources` |
 | Убрать дубликаты и записать JSONL/meta | [store.mjs](store.mjs): `itemId`, `appendItems`, `loadMeta`, `updateMeta` |
