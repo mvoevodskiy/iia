@@ -4,7 +4,7 @@
 // Безопасность (не ослаблять без причины):
 // - на всех ответах CSP и прочие заголовки из SECURITY_HEADERS;
 // - POST, кроме /api/ingest, — только с Origin/Referer этого же хоста (защита от подделки запросов);
-// - cookie сессии HttpOnly + SameSite=Lax; в БД — только sha256 токена;
+// - cookie HttpOnly: обычная SameSite=Lax; HTTPS Mini App — None/Secure/Partitioned; в БД — sha256;
 // - IP клиента из X-Real-IP/X-Forwarded-For берём, только если соединение пришло с локального адреса и PULT_TRUST_PROXY=1.
 
 import { readFile, stat } from 'node:fs/promises';
@@ -118,9 +118,13 @@ export function createApp(ctx: AppContext): (req: IncomingMessage, res: ServerRe
   let lastIngestLog = 0;
   let lastBadTokenLog = 0;
 
-  // Lax: Mini App в WebView Telegram иначе иногда не принимает Strict после POST /api/tg-auth.
+  // Ordinary browser/TOTP sessions keep Lax. Mini App has a separate cookie so
+  // embedded and top-level sessions cannot shadow each other.
   const cookie = (name: string, value: string, maxAgeSec: number, path: string): string =>
     `${name}=${value}; Path=${path}; Max-Age=${maxAgeSec}; HttpOnly; SameSite=Lax${cfg.cookieSecure ? '; Secure' : ''}`;
+
+  const tgSessionCookie = (value: string, maxAgeSec: number): string =>
+    `pult_tg_sid=${value}; Path=/; Max-Age=${maxAgeSec}; HttpOnly; ${cfg.cookieSecure ? 'SameSite=None; Secure; Partitioned' : 'SameSite=Lax'}`;
 
   function clientIp(req: IncomingMessage): string {
     const remote = normIp(req.socket.remoteAddress);
@@ -172,7 +176,11 @@ export function createApp(ctx: AppContext): (req: IncomingMessage, res: ServerRe
     res.end();
   };
 
-  const fullSession = (req: IncomingMessage) => getSession(db, parseCookies(req.headers.cookie)[SESSION_COOKIE], 'full', ctx.now());
+  const fullSession = (req: IncomingMessage) => {
+    const cookies = parseCookies(req.headers.cookie);
+    return getSession(db, cookies.pult_tg_sid, 'full', ctx.now())
+      ?? getSession(db, cookies[SESSION_COOKIE], 'full', ctx.now());
+  };
 
   function notify(textHtml: string, kind: string): void {
     void ctx.notifier.send(textHtml, kind).catch(() => { /* ошибка уже записана в notify.lastError */ });
@@ -256,7 +264,7 @@ export function createApp(ctx: AppContext): (req: IncomingMessage, res: ServerRe
     res.writeHead(204, {
       'Cache-Control': 'no-store',
       'Content-Length': 0,
-      'Set-Cookie': cookie(SESSION_COOKIE, token, sessionCookieMaxAge(), '/'),
+      'Set-Cookie': tgSessionCookie(token, sessionCookieMaxAge()),
     });
     res.end();
   }
@@ -514,10 +522,11 @@ export function createApp(ctx: AppContext): (req: IncomingMessage, res: ServerRe
         return text(res, 405, 'Только GET и POST');
       case '/logout': {
         if (method !== 'POST') return text(res, 405, 'Только POST');
-        const token = parseCookies(req.headers.cookie)[SESSION_COOKIE];
-        if (getSession(db, token, 'full', ctx.now())) log(`выход, IP ${clientIp(req)}`);
-        deleteSession(db, token);
-        return redirect(res, '/login', [cookie(SESSION_COOKIE, '', 0, '/')]);
+        const cookies = parseCookies(req.headers.cookie);
+        if (fullSession(req)) log(`выход, IP ${clientIp(req)}`);
+        deleteSession(db, cookies[SESSION_COOKIE]);
+        deleteSession(db, cookies.pult_tg_sid);
+        return redirect(res, '/login', [cookie(SESSION_COOKIE, '', 0, '/'), tgSessionCookie('', 0)]);
       }
       case '/ui/auth.css':
         if (method !== 'GET') return text(res, 405, 'Только GET');
