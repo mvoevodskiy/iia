@@ -120,3 +120,27 @@ All three assertions fail with MSB_PRESENTATION_LEGACY_RETRY=1 and pass normally
 Core: 70 existing tests plus 3 new delivery tests PASS on macOS. This follow-up
 does not resolve the three standalone provider defects documented above; the
 JAR1 compatibility package preserves the already deployed provider fixes.
+
+## Codex in Engines
+
+The legacy engine view (`vendor/deobfuscated.js`, WBA) provides the reference
+for navigation and separate engine actions. It did not contain a native Codex
+row. The owner explicitly requested this addition while keeping old behavior.
+
+`overlay/bot/ext/engine-menu.mjs` supplies a read-only provider view from the
+existing registry/store through an optional Bot-class bridge. Core screens
+render its choices; all engine-router return paths use that view. Without the
+extension, core does not expose an unhandled Codex callback. The displayed row
+uses the existing `ext:conn:set:codex` flow, not a second engine implementation.
+
+This branch now includes the previously reviewed owner/login-status guards
+required by that callback. An explicit, validated selection can leave `oc` for
+`cc`; startup synchronization alone cannot. Core and auth-gate transactions
+share their state queue. Native auth, Codex sessions/model/effort and retained
+OC fields are covered by the reference fixtures; no OS helper is invoked.
+
+Validation: 3 provider-view unit tests and 7 real core-router/overlay scenarios
+pass; existing core 73 and overlay 55 checks pass. The standalone branch still
+has the previously recorded stream-cut/session failure reference; it is outside
+this menu change. JAR1's compatibility package retains its existing fix and
+passes all 167 checks, including every old and new reference scenario.

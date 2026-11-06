@@ -73,6 +73,8 @@ export async function handleCallback({ bot, cfg, pending, ctx }) {
 
   const show = async (view) => editOrReply(bot.api, chatId, msgId, view.text, view.keyboard);
   const { state } = await loadState();
+  const engineMenu = async (snapshot) => enginesScreen(state, snapshot,
+    await bot[Symbol.for('msb.engineProviderView')]?.(state));
 
   if (data === 'whisper:skip') return show({ text: 'Когда захочешь — отправь голосовое снова.\nИли подключи Deepgram в /settings → 🔑' });
 
@@ -240,9 +242,9 @@ export async function handleCallback({ bot, cfg, pending, ctx }) {
   if (data === 'eng:home' || data === 'eng:add' || data === 'eng:mig') {
     const snap = await engineStatusSnapshot();
     if ((process.env.MSB_CC_ONLY || process.env.JARVIS_CC_ONLY) === '1' && data !== 'eng:home') {
-      return show({ text: CC_BLOCK(), keyboard: enginesScreen(state, snap).keyboard });
+      return show({ text: CC_BLOCK(), keyboard: (await engineMenu(snap)).keyboard });
     }
-    return show(enginesScreen(state, snap));
+    return show(await engineMenu(snap));
   }
   if (data === 'eng:status') {
     try {
@@ -254,12 +256,12 @@ export async function handleCallback({ bot, cfg, pending, ctx }) {
       const note = result
         ? `\n\nЗаявка <code>${result.code}</code> (${result.result})`
         : '\n\n⚠️ Нет ответа helper за 20с';
-      const screen = enginesScreen(state, snap);
+      const screen = await engineMenu(snap);
       return show({ text: screen.text + note, keyboard: screen.keyboard });
     } catch (err) {
       return show({
         text: `Не удалось связаться с msb-engine: ${err.message}`,
-        keyboard: enginesScreen(state).keyboard,
+        keyboard: (await engineMenu()).keyboard,
       });
     }
   }
@@ -271,7 +273,7 @@ export async function handleCallback({ bot, cfg, pending, ctx }) {
       });
       const result = await waitRequestResult(id, { timeoutMs: 60_000 });
       const snap = await engineStatusSnapshot();
-      const screen = enginesScreen(state, snap);
+      const screen = await engineMenu(snap);
       const note = result
         ? `\n\n${action}: <code>${result.code}</code>`
         : `\n\n⚠️ ${action}: нет ответа`;
@@ -279,7 +281,7 @@ export async function handleCallback({ bot, cfg, pending, ctx }) {
     } catch (err) {
       return show({
         text: `${action} ошибка: ${err.message}`,
-        keyboard: enginesScreen(state).keyboard,
+        keyboard: (await engineMenu()).keyboard,
       });
     }
   }

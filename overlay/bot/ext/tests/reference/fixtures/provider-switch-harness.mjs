@@ -1,12 +1,15 @@
 import fs from 'node:fs/promises';
+import fsSync from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { spawn } from 'node:child_process';
+import childProcess, { spawn } from 'node:child_process';
+import { syncBuiltinESMExports } from 'node:module';
 import { Bot } from 'grammy';
 
 // One subprocess per scenario keeps prototype patches and env writes isolated.
 const scenario = process.argv[2];
+const engineMenuScenario = scenario.startsWith('engine-');
 const fixtureHome = process.env.HOME;
 if (!fixtureHome || fixtureHome !== process.env.REFERENCE_HOME || os.homedir() !== fixtureHome) {
   throw new Error('The reference harness requires its isolated HOME');
@@ -34,10 +37,11 @@ for (const name of ['codex', 'claude']) await fs.writeFile(path.join(binDir, nam
 
 Object.assign(process.env, {
   PATH: binDir, MSB_BOT_ID: 'default', ADMIN_ID: String(owner),
+  MSB_WORKSPACE_DIR: workspace, MSB_SESSION_DIR: path.join(botDir, 'sessions'),
   MSB_REAL_CLAUDE: path.join(binDir, 'claude'),
   CLAUDE_CODE_OAUTH_TOKEN: 'reference-claude-oauth-not-a-real-token',
   REFERENCE_TRACE: traceFile, REFERENCE_EFFECTS: effectsFile,
-  REFERENCE_LOGIN: scenario === 'invalid-login' ? 'invalid' : 'valid',
+  REFERENCE_LOGIN: scenario.includes('invalid-login') ? 'invalid' : 'valid',
   REFERENCE_SCENARIO: scenario,
 });
 const nativeAuth = JSON.stringify({ auth_mode: 'chatgpt', tokens: {
@@ -53,6 +57,46 @@ const writeJSON = (file, value) => fs.writeFile(file, JSON.stringify(value), { m
 const readJSON = async (file) => JSON.parse(await fs.readFile(file, 'utf8'));
 await writeJSON(stateFile, initialState);
 await writeJSON(storeFile, initialStore);
+
+// The real router/overlay may write only this disposable profile. In particular,
+// never let a regression submit an OS-helper request or execute a system CLI.
+const forbiddenEffects = [];
+if (engineMenuScenario) {
+  const checkPath = (value, method) => {
+    const file = value instanceof URL ? fileURLToPath(value) : String(value);
+    const resolved = path.resolve(file);
+    if (resolved === path.join(fixtureHome, '.msb/engine') || resolved.startsWith(path.join(fixtureHome, '.msb/engine') + path.sep)) {
+      forbiddenEffects.push({ method, file });
+      throw new Error('Reference harness forbids OS-helper requests');
+    }
+    if (resolved !== fixtureHome && !resolved.startsWith(`${fixtureHome}${path.sep}`)) {
+      forbiddenEffects.push({ method, file });
+      throw new Error(`Reference harness forbids ${method} outside HOME`);
+    }
+  };
+  for (const method of ['writeFile', 'appendFile', 'mkdir', 'rename', 'copyFile', 'unlink', 'rm']) {
+    for (const [target, name] of [[fs, method], [fsSync, `${method}Sync`]]) {
+      const original = target[name];
+      target[name] = function (...args) {
+        checkPath(args[0], name);
+        if (method === 'rename' || method === 'copyFile') checkPath(args[1], name);
+        return original.apply(this, args);
+      };
+    }
+  }
+  for (const method of ['spawn', 'exec', 'execFile', 'spawnSync', 'execSync', 'execFileSync', 'fork']) {
+    const original = childProcess[method];
+    childProcess[method] = function (command, ...args) {
+      if (method !== 'spawn' || command !== path.join(binDir, 'codex') ||
+          JSON.stringify(args[0]) !== JSON.stringify(['login', 'status'])) {
+        forbiddenEffects.push({ method, command });
+        throw new Error(`Reference harness forbids unexpected ${method}`);
+      }
+      return original.call(this, command, ...args);
+    };
+  }
+  syncBuiltinESMExports();
+}
 
 async function trace() {
   const text = await fs.readFile(traceFile, 'utf8').catch((error) => {
@@ -84,7 +128,7 @@ async function runShim(argv) {
   });
 }
 
-async function hookedBot() {
+async function hookedBot({ coreRouter = false } = {}) {
   const { prepare } = await import('../../../install.mjs');
   await prepare();
   const botInfo = { id: 123456, is_bot: true, first_name: 'Reference', username: 'provider_reference_bot' };
@@ -103,7 +147,18 @@ async function hookedBot() {
   const root = fileURLToPath(new URL('../../../../../../', import.meta.url));
   const { adminGuard } = await import(pathToFileURL(path.join(root, '.msb/bot/src/telegram/auth.mjs')).href);
   bot.use(adminGuard(owner));
-  bot.on('callback_query:data', (ctx) => ctx.answerCallbackQuery());
+  const coreCallbacks = [];
+  if (coreRouter) {
+    const { handleCallback } = await import(pathToFileURL(path.join(root, '.msb/bot/src/telegram/router.mjs')).href);
+    const { readConfig } = await import(pathToFileURL(path.join(root, '.msb/bot/src/config.mjs')).href);
+    const pending = new Map();
+    bot.on('callback_query:data', (ctx) => {
+      coreCallbacks.push(ctx.callbackQuery.data);
+      return handleCallback({ bot, cfg: readConfig(), pending, ctx });
+    });
+  } else {
+    bot.on('callback_query:data', (ctx) => ctx.answerCallbackQuery());
+  }
   let updateId = 1;
   const callback = (data, actor = owner) => bot.handleUpdate({
     update_id: updateId++, callback_query: { id: `reference-${updateId}`, chat_instance: 'reference', data,
@@ -111,11 +166,53 @@ async function hookedBot() {
       message: { message_id: 1, date: 0, from: botInfo, chat: { id: actor, type: 'private' } },
     },
   });
-  return { bot, callback, calls };
+  return { bot, callback, calls, coreCallbacks };
 }
 
 let result;
-if (scenario === 'roundtrip') {
+if (engineMenuScenario) {
+  const alreadyCodex = ['engine-home', 'engine-reselect'].includes(scenario);
+  const openClaw = scenario.startsWith('engine-oc-');
+  const selectedStore = { ...initialStore, active: alreadyCodex ? 'codex' : 'claude',
+    sessions: { codex: thread }, models: { codex: 'gpt-6.1-sol' }, efforts: { codex: 'high' } };
+  const selectedState = { ...initialState, engine: openClaw ? 'oc' : 'cc',
+    ccModel: 'sonnet', ccEffort: 'medium', permissionMode: 'auto', sessionEpoch: 7,
+    ...(alreadyCodex ? { extAuthBypass: 'codex', ccSessionId: session } : {}),
+    ...(openClaw ? { ocModel: 'openai/reference', ocSessionId: 'reference-oc-session' } : {}) };
+  await writeJSON(stateFile, selectedState);
+  await writeJSON(storeFile, selectedStore);
+  const f = await hookedBot({ coreRouter: true });
+  const snapshot = async () => ({
+    state: await fs.readFile(stateFile, 'utf8'), store: await fs.readFile(storeFile, 'utf8'),
+    config: await fs.readFile(path.join(fixtureHome, '.codex/config.toml'), 'utf8'),
+    auth: await fs.readFile(authFile, 'utf8'),
+  });
+  const before = await snapshot();
+  await f.callback('eng:home');
+  const menu = f.calls.findLast((call) => call.method === 'editMessageText');
+  if (!menu) throw new Error('The real core router did not render eng:home');
+  const buttons = menu.payload.reply_markup?.inline_keyboard?.flat() || [];
+  const codexButton = buttons.find((button) => button.text.includes('Codex'));
+  if (!codexButton) throw new Error('The real engine menu contains no Codex button');
+  const afterHome = await snapshot();
+  const homeCli = await trace();
+  const homeCoreCallbacks = [...f.coreCallbacks];
+  const callsBeforeClick = f.calls.length;
+  if (scenario !== 'engine-home') {
+    await f.callback(codexButton.callback_data, scenario === 'engine-foreign-owner' ? 43 : owner);
+    if (scenario === 'engine-reselect') await f.callback(codexButton.callback_data);
+  }
+  const after = await snapshot();
+  const unchanged = (a, b) => Object.fromEntries(Object.keys(a).map((key) => [key, a[key] === b[key]]));
+  result = {
+    menu: { text: menu.payload.text, messageId: menu.payload.message_id, buttons },
+    homeUnchanged: unchanged(before, afterHome), homeCli, homeCoreCallbacks,
+    unchanged: unchanged(before, after), state: JSON.parse(after.state), store: JSON.parse(after.store),
+    // Only non-secret synthetic configuration is returned to the test process.
+    nativeConfig: after.config, actionCalls: f.calls.slice(callsBeforeClick),
+    coreCallbacks: f.coreCallbacks, cli: await trace(), forbiddenEffects,
+  };
+} else if (scenario === 'roundtrip') {
   const f = await hookedBot();
   const originalClaudeAuth = process.env.CLAUDE_CODE_OAUTH_TOKEN;
   await f.callback('ext:conn:set:codex');

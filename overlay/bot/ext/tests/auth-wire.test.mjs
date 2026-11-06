@@ -34,15 +34,18 @@ test('wireCodexAuth fails closed when CLI missing (не объявляет ус�
   assert.match(r.error, /не установлен|failed|codex/i);
 });
 
-test('codexLoginStatus ok when auth.json present', async () => {
+test('codexLoginStatus verifies the CLI even with an existing auth.json', async (t) => {
   const home = await fs.mkdtemp(path.join(os.tmpdir(), 'msb-codex-st-'));
+  t.after(() => fs.rm(home, { recursive: true, force: true }));
   await fs.mkdir(path.join(home, '.codex'), { recursive: true });
-  await fs.writeFile(
-    path.join(home, '.codex', 'auth.json'),
-    JSON.stringify({ auth_mode: 'chatgpt', tokens: { access_token: 't', refresh_token: 'r' } }),
-    { mode: 0o600 },
-  );
-  const st = await codexLoginStatus({ PATH: '/nonexistent' }, home);
-  assert.equal(st.ok, true);
-  assert.equal(st.mode, 'native-auth.json');
+  await fs.mkdir(path.join(home, 'bin'));
+  await fs.writeFile(path.join(home, '.codex/auth.json'), JSON.stringify({ tokens: { access_token: 'stale-fixture' } }));
+  const bin = path.join(home, 'bin/codex');
+  await fs.writeFile(bin, '#!/bin/sh\necho "Not logged in"\nexit 1\n', { mode: 0o755 });
+  const env = { PATH: path.join(home, 'bin') };
+  assert.equal((await codexLoginStatus(env, home)).ok, false);
+  await fs.writeFile(bin, '#!/bin/sh\necho "Logged in using ChatGPT"\n');
+  const status = await codexLoginStatus(env, home);
+  assert.equal(status.ok, true);
+  assert.equal(status.mode, 'cli-status');
 });

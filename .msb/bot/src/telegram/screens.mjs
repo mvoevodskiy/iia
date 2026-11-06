@@ -1,5 +1,5 @@
 /**
- * Экраны Telegram 1:1 с закрытым ядром (тексты + callback_data).
+ * Экраны Telegram: адаптация прежнего поведения и навигации к открытому ядру.
  * Источник: vendor/deobfuscated.js (Ph, Ky, mK, mE, autonomy, monitor, mcp…).
  */
 import { InlineKeyboard } from 'grammy';
@@ -360,8 +360,8 @@ ${BLANK}`,
   };
 }
 
-export function enginesScreen(state, engineSnap = null) {
-  const eng = state.engine === 'oc' ? 'OpenClaw' : 'Claude Code';
+export function enginesScreen(state, engineSnap = null, providerView = null) {
+  const eng = providerView?.activeTitle || (state.engine === 'oc' ? 'OpenClaw' : 'Claude Code');
   const j = (engineSnap?.msb || engineSnap?.jarvis);
   const o = engineSnap?.openclaw;
   const helper = engineSnap?.helper ? String(engineSnap.helper) : '—';
@@ -374,6 +374,8 @@ export function enginesScreen(state, engineSnap = null) {
   const err = engineSnap?.error === 'NO_STATE'
     ? '\n\n⚠️ Нет /run/msb-engine/state.json — проверь msb-engine.path'
     : '';
+  const keyboard = new InlineKeyboard().text('👾 Claude Code', 'settings:engine:set:cc').row();
+  for (const choice of providerView?.choices || []) keyboard.text(choice.text, choice.callback_data).row();
   return {
     text: `<b>⚙️ Движки</b>
 
@@ -385,9 +387,7 @@ ${oLine}${err}
 
 Установка OpenClaw из меню — в v1.1. Сейчас: статус / вкл-выкл, если OC уже на боксе.
 ${BLANK}`,
-    keyboard: new InlineKeyboard()
-      .text('👾 Claude Code', 'settings:engine:set:cc')
-      .row()
+    keyboard: keyboard
       .text('🔄 Статус helper', 'eng:status')
       .row()
       .text('▶️ OC', 'eng:oc:on')

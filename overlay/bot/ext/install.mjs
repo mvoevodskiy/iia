@@ -1,3 +1,4 @@
+import { registerEngineProviderView } from './engine-menu.mjs';
 /**
  * Хуки в grammy Bot без правки бандла index.js.
  * Вызывать prepare() ДО import('./index.js').
@@ -389,19 +390,19 @@ async function handleCallback(bot, cq) {
     await bot.api.answerCallbackQuery(cq.id).catch(() => {});
 
     if (id === 'codex') {
-      if (await providerConfigured(p)) {
-        const ok = await ensureAndReport(bot, chatId, messageId, id);
-        if (!ok) return true;
-        await prepareCodexRuntime();
-        await setActive(id);
-        await syncExtAuthGate();
-        const menu = await buildConnMenu();
-        await editOrReply(bot, chatId, messageId, `${switchedText(id)}\n\n${menu.text}`, menu.keyboard);
-        console.error(`${EXT_MARKER} active provider → ${id}`);
+      const ok = await ensureAndReport(bot, chatId, messageId, id);
+      if (!ok) return true;
+      const status = await codexLoginStatus();
+      if (!status.ok) {
+        await editOrReply(bot, chatId, messageId, 'Codex CLI не подтвердил вход. Выбранный движок и сессия сохранены.',
+          { inline_keyboard: [[{ text: '🔐 Вход', callback_data: 'ext:auth:codex' }], [{ text: '« Назад', callback_data: 'settings:conn' }]] });
         return true;
       }
-      // Нет native auth — запускаем login, секрет в Telegram не просим.
-      await connectCodexNative(bot, chatId, messageId);
+      await prepareCodexRuntime();
+      await setActive(id);
+      await syncExtAuthGate(process.env, os.homedir(), { activateCli: true });
+      const menu = await buildConnMenu();
+      await editOrReply(bot, chatId, messageId, `${switchedText(id)}\n\n${menu.text}`, menu.keyboard);
       return true;
     }
 
@@ -706,8 +707,19 @@ export async function prepare() {
     console.error(`${EXT_MARKER} setup-bypass boot:`, err?.message || err);
   }
 
-  const origHandleUpdate = Bot.prototype.handleUpdate;
-  Bot.prototype.handleUpdate = async function handleUpdateExt(update, webhookReplyEnvelope) {
+  installUpdateHook(Bot);
+  console.error(`${EXT_MARKER} Bot.prototype.handleUpdate patched (ESM Bot)`);
+}
+
+export function installUpdateHook(BotClass, env = process.env) {
+  registerEngineProviderView(BotClass, env);
+  const ownerId = Number(env.ADMIN_ID || env.OWNER_USER_ID || '0');
+  const origHandleUpdate = BotClass.prototype.handleUpdate;
+  BotClass.prototype.handleUpdate = async function handleUpdateExt(update, webhookReplyEnvelope) {
+    const event = update?.callback_query || update?.message;
+    if (!Number.isFinite(ownerId) || ownerId <= 0 || Number(event?.from?.id) !== ownerId) {
+      return origHandleUpdate.call(this, update, webhookReplyEnvelope);
+    }
     try {
       if (update?.callback_query) {
         const handled = await handleCallback(this, update.callback_query);
@@ -723,5 +735,4 @@ export async function prepare() {
     return origHandleUpdate.call(this, update, webhookReplyEnvelope);
   };
 
-  console.error(`${EXT_MARKER} Bot.prototype.handleUpdate patched (ESM Bot)`);
 }

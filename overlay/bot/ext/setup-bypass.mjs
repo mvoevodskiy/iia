@@ -5,33 +5,14 @@
  *
  * Пишем в state.json authMode=subscription (+ маркер extAuthBypass), бандл не трогаем.
  */
-import fs from 'node:fs/promises';
 import os from 'node:os';
-import path from 'node:path';
 import { getProvider } from './providers.mjs';
 import { providerConfigured } from './env.mjs';
 import { loadStore } from './store.mjs';
-import { botStatePath } from './paths.mjs';
+import { updateBotState } from './state-update.mjs';
 
 const MARK = '[msb/ext/setup-bypass]';
 export const EXT_AUTH_FLAG = 'extAuthBypass';
-
-async function readState(env, home) {
-  const file = botStatePath(env, home);
-  try {
-    return { file, state: JSON.parse(await fs.readFile(file, 'utf8')) };
-  } catch (err) {
-    if (err?.code === 'ENOENT') return { file, state: {} };
-    throw err;
-  }
-}
-
-async function writeState(file, state) {
-  await fs.mkdir(path.dirname(file), { recursive: true });
-  const tmp = `${file}.tmp.${process.pid}`;
-  await fs.writeFile(tmp, `${JSON.stringify(state, null, 2)}\n`, { mode: 0o600 });
-  await fs.rename(tmp, file);
-}
 
 async function hasClaudeCreds(env) {
   return !!(
@@ -45,19 +26,28 @@ async function hasClaudeCreds(env) {
  * Синхронизирует state.authMode с активным ext-провайдером.
  * @returns {{ changed: boolean, reason: string }}
  */
-export async function syncExtAuthGate(env = process.env, home = os.homedir()) {
+export async function syncExtAuthGate(env = process.env, home = os.homedir(), { activateCli = false } = {}) {
+  let outcome;
+  await updateBotState(async (state) => {
   const store = await loadStore(env, home);
   const provider = getProvider(store.active) || getProvider('claude');
-  const { file, state } = await readState(env, home);
 
-  if (state?.engine === 'oc') {
-    return { changed: false, reason: 'oc-engine' };
+  if (state?.engine === 'oc' && !activateCli) {
+    outcome = { changed: false, reason: 'oc-engine' };
+    return null;
   }
 
   const configured = await providerConfigured(provider, env, home);
   const claudeOk = await hasClaudeCreds(env);
   let changed = false;
   let reason = 'noop';
+  if (state.engine === 'oc' && activateCli && provider.id !== 'claude' && configured) {
+    state.engine = 'cc';
+    delete state.ccSessionId;
+    state.sessionEpoch = (state.sessionEpoch || 0) + 1;
+    changed = true;
+    reason = 'select-cli-engine';
+  }
 
   if (provider.id !== 'claude' && configured) {
     if (state.authMode !== 'subscription' || !state.hasSubscriptionAuth || state[EXT_AUTH_FLAG] !== provider.id) {
@@ -91,8 +81,10 @@ export async function syncExtAuthGate(env = process.env, home = os.homedir()) {
   }
 
   if (changed) {
-    await writeState(file, state);
     console.error(`${MARK} ${reason}`);
   }
-  return { changed, reason };
+  outcome = { changed, reason };
+  return changed ? state : null;
+  }, env, home);
+  return outcome;
 }

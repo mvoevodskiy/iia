@@ -38,7 +38,7 @@ export async function saveState(state, env = process.env) {
 
 // Polling and background turns can update the same profile concurrently.
 // Serialize the entire read/modify/write transaction, not just the rename.
-const stateUpdates = new Map();
+const stateUpdates = globalThis[Symbol.for('msb.stateUpdates')] ||= new Map();
 export function updateState(mutator, env = process.env) {
   const file = statePath(env);
   const previous = stateUpdates.get(file) || Promise.resolve();
