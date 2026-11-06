@@ -1,3 +1,4 @@
+import { handleNativeEngineCallback } from '../engines/telegram.mjs';
 /**
  * Роутер callback_query — те же callback_data, что в закрытом ядре.
  */
@@ -48,11 +49,6 @@ import {
 } from './screens.mjs';
 import { applyEffort, applyModelFamily, applyPermMode } from './actions.mjs';
 import { removeSource } from '../monitor/config.mjs';
-import {
-  engineStatusSnapshot,
-  submitRequest,
-  waitRequestResult,
-} from '../engines/client.mjs';
 import { pollAllSources } from '../monitor/poll.mjs';
 import { buildDigestText, updateDigestSettings } from '../monitor/digest.mjs';
 import { removeBot } from '../bots/manage.mjs';
@@ -70,6 +66,7 @@ export async function handleCallback({ bot, cfg, pending, ctx }) {
   const msgId = ctx.callbackQuery.message?.message_id;
   await ctx.answerCallbackQuery().catch(() => {});
   if (!chatId) return;
+  if (['menu:back', 'menu:close', 'menu:agent', 'menu:settings', 'settings:back', 'mon:back', 'settings:bots:cancel'].includes(data)) pending.delete(chatId);
 
   const show = async (view) => editOrReply(bot.api, chatId, msgId, view.text, view.keyboard);
   const { state } = await loadState();
@@ -85,7 +82,7 @@ export async function handleCallback({ bot, cfg, pending, ctx }) {
   if (data === 'menu:autonomy' || data === 'auto:home') return show(await autonomyHomeScreen());
   if (data === 'menu:mcp') return show(mcpScreen());
   if (data === 'menu:skills') return show(skillsScreen());
-  if (data === 'menu:sessions') return show(sessionsScreen());
+  if (data === 'menu:sessions') return show(await sessionsScreen(state));
   if (data === 'menu:projects') return show(projectsScreen());
   if (data === 'menu:newproject') {
     pending.set(chatId, 'new-project');
@@ -154,8 +151,8 @@ export async function handleCallback({ bot, cfg, pending, ctx }) {
   if (data === 'settings:extras') return show(extrasScreen());
   if (data === 'settings:restart') return show(restartConfirmScreen());
   if (data === 'settings:restart:do') {
-    await bot.api.sendMessage(chatId, 'Перезапускаюсь…');
-    setTimeout(() => restartSelf(), 400);
+    await bot.api.sendMessage(chatId, 'Запускаю перезапуск бота…');
+    setTimeout(() => restartSelf(() => bot.api.sendMessage(chatId, 'Не удалось запустить перезапуск. Служба осталась в прежнем состоянии.').catch(() => {})), 400);
     return;
   }
   if (data === 'settings:ssh') return show(sshUnavailableScreen());
@@ -239,51 +236,14 @@ export async function handleCallback({ bot, cfg, pending, ctx }) {
   if (data === 'settings:server-status') return show(serverStatusScreen(cfg));
   if (data === 'settings:stt') return show(sttScreen());
   if (data === 'nm:list') return show(notificationsScreen());
+  if (process.env.MSB_OS_ENGINE === 'native' && await handleNativeEngineCallback({
+    data, state, show, providerView: () => bot[Symbol.for('msb.engineProviderView')]?.(state),
+  })) return;
   if (data === 'eng:home' || data === 'eng:add' || data === 'eng:mig') {
-    const snap = await engineStatusSnapshot();
-    if ((process.env.MSB_CC_ONLY || process.env.JARVIS_CC_ONLY) === '1' && data !== 'eng:home') {
-      return show({ text: CC_BLOCK(), keyboard: (await engineMenu(snap)).keyboard });
+    if (process.env.JARVIS_CC_ONLY === '1' && data !== 'eng:home') {
+      return show({ text: CC_BLOCK(), keyboard: (await engineMenu()).keyboard });
     }
-    return show(await engineMenu(snap));
-  }
-  if (data === 'eng:status') {
-    try {
-      const { id } = await submitRequest('status', {
-        bot_id: process.env.MSB_BOT_ID || 'default',
-      });
-      const result = await waitRequestResult(id, { timeoutMs: 20_000 });
-      const snap = await engineStatusSnapshot();
-      const note = result
-        ? `\n\nЗаявка <code>${result.code}</code> (${result.result})`
-        : '\n\n⚠️ Нет ответа helper за 20с';
-      const screen = await engineMenu(snap);
-      return show({ text: screen.text + note, keyboard: screen.keyboard });
-    } catch (err) {
-      return show({
-        text: `Не удалось связаться с msb-engine: ${err.message}`,
-        keyboard: (await engineMenu()).keyboard,
-      });
-    }
-  }
-  if (data === 'eng:oc:on' || data === 'eng:oc:off') {
-    const action = data === 'eng:oc:on' ? 'enable-openclaw' : 'disable-openclaw';
-    try {
-      const { id } = await submitRequest(action, {
-        bot_id: process.env.MSB_BOT_ID || 'default',
-      });
-      const result = await waitRequestResult(id, { timeoutMs: 60_000 });
-      const snap = await engineStatusSnapshot();
-      const screen = await engineMenu(snap);
-      const note = result
-        ? `\n\n${action}: <code>${result.code}</code>`
-        : `\n\n⚠️ ${action}: нет ответа`;
-      return show({ text: screen.text + note, keyboard: screen.keyboard });
-    } catch (err) {
-      return show({
-        text: `${action} ошибка: ${err.message}`,
-        keyboard: (await engineMenu()).keyboard,
-      });
-    }
+    return show(await engineMenu());
   }
 
   // —— autonomy ——
@@ -399,7 +359,7 @@ export async function handleCallback({ bot, cfg, pending, ctx }) {
 
   // —— plan / misc ——
   if (data.startsWith('plan:')) {
-    await bot.api.sendMessage(chatId, `Принято: ${data}`);
+    await bot.api.sendMessage(chatId, `Получено: ${data}. Обработчик подтверждения в open-core пока не подключён.`);
     return;
   }
 
@@ -409,16 +369,16 @@ export async function handleCallback({ bot, cfg, pending, ctx }) {
 
 function CC_BLOCK() {
   return `Этот бот работает только с 👾 Claude Code.
-OpenClaw ставится отдельно: /settings → ⚙️ Движки → ➕ OpenClaw.`;
+Управление OpenClaw через это меню пока не подключено.`;
 }
 
-function restartSelf() {
+function restartSelf(onError) {
   try {
-    spawn('sudo', ['bot-ctl.sh', 'restart', process.env.MSB_BOT_ID || 'default'], {
-      detached: true,
-      stdio: 'ignore',
-    }).unref();
-  } catch {
-    process.exit(0);
-  }
+    const child = spawn('sudo', ['-n', 'bot-ctl.sh', 'restart', process.env.MSB_BOT_ID || 'default'], {
+      detached: true, stdio: 'ignore',
+    });
+    child.once('error', onError);
+    child.once('exit', (code) => { if (code) onError(); });
+    child.unref();
+  } catch { onError(); }
 }

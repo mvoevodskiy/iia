@@ -55,6 +55,7 @@ export async function readEnvMap(env = process.env) {
 
 export function maskValue(v) {
   const s = String(v || '');
+  if (!s) return 'пусто';
   if (s.length <= 6) return '•••';
   return `${s.slice(0, 3)}…${s.slice(-3)} (${s.length} симв.)`;
 }
@@ -74,6 +75,9 @@ export async function listEnvEntries(env = process.env) {
 export async function setEnvKey(key, value, env = process.env) {
   if (!/^[A-Z][A-Z0-9_]*$/.test(key)) {
     throw new Error('Ключ: только A-Z, цифры и _');
+  }
+  if (typeof value !== 'string' || /[\r\n\0]/.test(value)) {
+    throw new Error('Значение должно быть одной строкой, без переводов строки и NUL.');
   }
   const { file, lines } = await readEnvMap(env);
   ensureDir(path.dirname(file));
@@ -95,7 +99,7 @@ export async function setEnvKey(key, value, env = process.env) {
   const tmp = `${file}.tmp.${process.pid}`;
   await fs.writeFile(tmp, body, { mode: 0o600 });
   await fs.rename(tmp, file);
-  process.env[key] = value;
+  env[key] = value;
   return { file, key };
 }
 
@@ -108,6 +112,6 @@ export async function deleteEnvKey(key, env = process.env) {
   const tmp = `${file}.tmp.${process.pid}`;
   await fs.writeFile(tmp, `${kept.join('\n').replace(/\n*$/, '')}\n`, { mode: 0o600 });
   await fs.rename(tmp, file);
-  delete process.env[key];
+  delete env[key];
   return { file, key };
 }

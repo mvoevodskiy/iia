@@ -33,6 +33,7 @@ import {
   codexLoginStatus,
 } from './auth-wire.mjs';
 import { botStatePath } from './paths.mjs';
+import { updateBotState } from './state-update.mjs';
 import { syncExtAuthGate } from './setup-bypass.mjs';
 import { hasNativeCodexAuth } from './codex-native.mjs';
 import { ensureCodexStableTransport } from './codex-transport.mjs';
@@ -240,7 +241,7 @@ async function showLocalAwareSshHome(bot, chatId, messageId) {
       const syncUrl = process.env.SYNC_URL || process.env.MSB_SYNC_URL || '';
       const syncKey = process.env.SYNC_KEY || process.env.MSB_SYNC_KEY || '';
       if (!syncUrl || !syncKey || !base) {
-        statusText = '⚠️ SYNC_URL/SYNC_KEY не настроены';
+        statusText = 'Статус SSH в меню не настроен. Сам SSH-доступ этим экраном не проверяется.';
       } else {
         const res = await fetch(`${base}/api/ssh/status`, {
           headers: { Authorization: `Bearer ${syncKey}`, 'Content-Type': 'application/json' },
@@ -293,12 +294,19 @@ async function showLocalAwareSshHome(bot, chatId, messageId) {
   await editOrReply(bot, chatId, messageId, text, { inline_keyboard: rows });
 }
 
-async function handleCallback(bot, cq) {
+async function handleCallback(bot, cq, closedCore = false) {
   const data = String(cq.data || '');
   const chatId = cq.message?.chat?.id;
   const messageId = cq.message?.message_id;
   const userId = cq.from?.id;
   if (!chatId || !userId) return false;
+
+  if (data.startsWith('settings:ssh:')) {
+    if (closedCore) return false;
+    await bot.api.answerCallbackQuery(cq.id).catch(() => {});
+    await editOrReply(bot, chatId, messageId, 'Управление SSH-ключами и firewall через это меню пока не подключено. Существующий доступ к серверу не меняется.', { inline_keyboard: [[{ text: '« Назад', callback_data: 'settings:ssh' }]] });
+    return true;
+  }
 
   // SSH-экран: показываем статус + кнопку локального IP (иначе на LAN всё красное).
   if (data === 'settings:ssh') {
@@ -343,27 +351,34 @@ async function handleCallback(bot, cq) {
     return true;
   }
 
-  // Штатные пункты (OpenRouter / OpenClaw / Claude / справка) — в бандл.
-  // Перед сменой штатного канала сбрасываем CLI-active, чтобы shim не перехватывал ход.
-  const stockConnPass = new Set([
-    'settings:auth:openrouter',
-    'settings:conn:set:openrouter',
-    'settings:engine:set:oc',
-    'settings:engine:set:cc',
-    'settings:conn:set:cc',
-    'settings:auth:switch-sub',
-    'settings:auth:help',
-  ]);
-  if (stockConnPass.has(data)) {
-    const resetActive = data !== 'settings:auth:help' && data !== 'settings:auth:switch-sub';
-    if (resetActive) {
-      try {
-        await setActive('claude');
-        await syncExtAuthGate();
-      } catch (err) {
-        console.error(`${EXT_MARKER} stock-conn prep:`, err?.message || err);
-      }
+  if (closedCore && ['settings:auth:openrouter', 'settings:conn:set:openrouter', 'settings:engine:set:oc', 'settings:engine:set:cc', 'settings:conn:set:cc', 'settings:auth:switch-sub', 'settings:auth:help'].includes(data)) {
+    if (data !== 'settings:auth:help' && data !== 'settings:auth:switch-sub') {
+      await setActive('claude');
+      await syncExtAuthGate();
     }
+    return false;
+  }
+
+  if (['settings:auth:openrouter', 'settings:conn:set:openrouter', 'settings:engine:set:oc'].includes(data)) {
+    await bot.api.answerCallbackQuery(cq.id).catch(() => {});
+    await editOrReply(bot, chatId, messageId,
+      'Это подключение в текущем ядре не реализовано. Выбранный движок и сессия сохранены.',
+      { inline_keyboard: [[{ text: '« Назад', callback_data: 'settings:conn' }]] });
+    return true;
+  }
+  if (['settings:engine:set:cc', 'settings:conn:set:cc'].includes(data)) {
+    if (await providerConfigured(getProvider('claude'))) {
+      await updateBotState((state) => {
+        if (state.engine !== 'oc') return null;
+        state.engine = 'cc';
+        return state;
+      });
+    }
+    cq.data = 'ext:conn:set:claude';
+    return handleCallback(bot, cq, closedCore);
+  }
+  if (data === 'settings:auth:help') {
+    cq.data = 'setup:help';
     return false;
   }
 
@@ -503,7 +518,8 @@ async function handleCallback(bot, cq) {
       const allowed = ['auto', 'smart', 'control', 'plan'];
       const next = allowed.includes(mode) ? mode : 'auto';
       await writeBotPermissionMode(next);
-      const agent = await buildAgentMenu(process.env, undefined, `✔ Режим: <b>${next}</b>.`);
+      const notice = store.active === 'codex' ? `✔ Настройка режима сохранена: <b>${next}</b>. Права Codex не менялись.` : `✔ Режим: <b>${next}</b>.`;
+      const agent = await buildAgentMenu(process.env, undefined, notice);
       await editOrReply(bot, chatId, messageId, agent.text, agent.keyboard);
       return true;
     }
@@ -708,12 +724,15 @@ export async function prepare() {
   }
 
   installUpdateHook(Bot);
+
   console.error(`${EXT_MARKER} Bot.prototype.handleUpdate patched (ESM Bot)`);
 }
+
 
 export function installUpdateHook(BotClass, env = process.env) {
   registerEngineProviderView(BotClass, env);
   const ownerId = Number(env.ADMIN_ID || env.OWNER_USER_ID || '0');
+  const closedCore = env.MSB_USE_CLOSED_CORE === '1';
   const origHandleUpdate = BotClass.prototype.handleUpdate;
   BotClass.prototype.handleUpdate = async function handleUpdateExt(update, webhookReplyEnvelope) {
     const event = update?.callback_query || update?.message;
@@ -722,11 +741,17 @@ export function installUpdateHook(BotClass, env = process.env) {
     }
     try {
       if (update?.callback_query) {
-        const handled = await handleCallback(this, update.callback_query);
+        const startsForm = ['settings:auth:switch-sub', 'setup:subscription', 'settings:env:add', 'settings:tz', 'menu:newproject', 'mon:add-hint', 'settings:bots:add', 'ext:ssh:local:edit'].includes(event.data) || /^(?:settings:env:quick:|ext:auth:|ext:conn:set:|settings:conn:set:|settings:engine:set:)/.test(event.data || '');
+        if (startsForm || ['menu:back', 'menu:close', 'menu:settings', 'menu:agent', 'settings:back', 'settings:auth', 'settings:conn', 'ext:conn', 'ext:ssh:local', 'mon:back', 'settings:bots:cancel'].includes(event.data)) {
+          clearPendingAuth(event.from.id);
+          clearPendingLocalIp(event.from.id);
+          this[Symbol.for('msb.cancelPendingInput')]?.(event.message?.chat?.id);
+        }
+        const handled = await handleCallback(this, event, closedCore);
         if (handled) return;
       }
       if (update?.message?.text) {
-        const handled = await handleAuthMessage(this, update.message);
+        const handled = await handleAuthMessage(this, event);
         if (handled) return;
       }
     } catch (err) {
@@ -734,5 +759,4 @@ export function installUpdateHook(BotClass, env = process.env) {
     }
     return origHandleUpdate.call(this, update, webhookReplyEnvelope);
   };
-
 }

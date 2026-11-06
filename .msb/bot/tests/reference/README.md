@@ -149,3 +149,9 @@ Alignment checkpoint: native context, MAX/top-level TOML and session-error
 behavior now live in the canonical source. The previously RED stream-cut test
 passes; all 150 checks of this checkpoint pass. See alignment-checkpoint.json.
 The JAR1 release has not been changed by this local checkpoint.
+
+Second alignment checkpoint: the canonical source now includes the remaining
+JAR1 form/menu/state-writer fixes. All 171 checks pass. Optional native OS-helper
+views/routes are preserved in src/engines/{screen,telegram}.mjs, activated only
+by the native runtime profile; JAR1 keeps its existing engine controls. Runtime
+profile integration, packaging and live deployment remain pending.

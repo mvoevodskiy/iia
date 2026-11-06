@@ -90,3 +90,19 @@ test('buildAgentMenu returns null for claude (штатный экран)', async
   await setActive('claude', env, home);
   assert.equal(await buildAgentMenu(env, home), null);
 });
+
+test('Codex MAX is offered and permissions describe the actual fixed mode', async (t) => {
+  const { buildPermModeMenu } = await import('../menu.mjs');
+  const home = await fs.mkdtemp(path.join(os.tmpdir(), 'msb-ext-ui-'));
+  t.after(() => fs.rm(home, { recursive: true, force: true }));
+  const env = { MSB_BOT_ID: 'default' };
+  await setActive('codex', env, home);
+  const effort = await buildEffortMenu(env, home);
+  assert.ok(effort.keyboard.inline_keyboard.flat().some((b) => b.callback_data === 'ext:effort:set:max'));
+  const perms = await buildPermModeMenu(env, home);
+  assert.match(perms.text, /полный доступ, без подтверждений/i);
+  assert.ok(perms.keyboard.inline_keyboard.flat().some((b) => b.callback_data === 'ext:permmode:set:control'));
+  const conn = await buildConnMenu(env, home);
+  assert.match(conn.text, /Сейчас отвечает: <b>Codex/);
+  assert.doesNotMatch(conn.text, /Штатный движок бандла/);
+});

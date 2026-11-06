@@ -30,7 +30,7 @@ async function scenario(t, name) {
   assert.equal(result.menu.buttons.find((button) => button.text.includes('Codex'))?.callback_data,
     'ext:conn:set:codex', 'The displayed button must use the existing provider switch flow');
   assert.ok(result.menu.buttons.some((button) => button.callback_data === 'settings:engine:set:cc'));
-  assert.ok(result.menu.buttons.some((button) => button.callback_data === 'eng:oc:on'));
+  assert.ok(result.menu.buttons.some((button) => button.callback_data === 'eng:add'));
   assert.ok(result.menu.buttons.some((button) => button.callback_data === 'menu:settings'));
   return result;
 }

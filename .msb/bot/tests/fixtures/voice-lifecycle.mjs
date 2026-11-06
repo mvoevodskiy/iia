@@ -235,7 +235,7 @@ try {
     report.envAfterVoice = await fs.readFile(envFile, 'utf8');
     report.keyAfterVoice = process.env.DEEPGRAM_API_KEY;
     sendText('fixture-typed-key');
-    await until(() => report.calls.some(call => call.applied && call.text === 'Сохранил <code>DEEPGRAM_API_KEY</code> в .env бота.'), 'typed input still consumes the pending env form');
+    await until(() => report.calls.some(call => call.applied && call.text?.startsWith('Сохранил <code>DEEPGRAM_API_KEY</code> в .env бота.')), 'typed input still consumes the pending env form');
   } else if (scenario === 'non-owner') {
     await until(() => has(`processed:${voiceUpdate}`), 'foreign update processed by the real polling middleware');
     report.beforeOwnerProbe = { calls: report.calls.length, fetches: report.fetches.length, cli: report.cli.length };

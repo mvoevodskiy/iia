@@ -202,7 +202,10 @@ export async function waitCodexNativeAuth({
 } = {}) {
   const started = Date.now();
   while (Date.now() - started < timeoutMs) {
-    if (await hasNativeCodexAuth(home)) return { ok: true };
+    if (await hasNativeCodexAuth(home)) {
+      const status = await codexLoginStatus(process.env, home);
+      if (status.ok) return status;
+    }
     await new Promise((r) => setTimeout(r, pollMs));
   }
   return { ok: false, error: 'таймаут ожидания входа Codex' };

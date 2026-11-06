@@ -18,8 +18,7 @@ import { hubScreen, monitorScreen, setupScreen, settingsScreen } from './screens
 /**
  * @param {ReturnType<import('../config.mjs').readConfig>} cfg
  */
-export function createBot(cfg) {
-  const bot = new Bot(cfg.botToken);
+export function createBot(cfg, { bot = new Bot(cfg.botToken), runTurn = runAgentTurn } = {}) {
   bot.api.config.use(presentationAwareRetry(autoRetry()));
 
   /** Active turns outlive the polling handler; keep ownership until delivery finishes. */
@@ -40,6 +39,11 @@ export function createBot(cfg) {
   };
 
   bot.use(adminGuard(cfg.adminId));
+  bot[Symbol.for('msb.cancelPendingInput')] = (chatId) => pending.delete(chatId);
+  bot.use(async (ctx, next) => {
+    if (/^\/start(?:@[\w_]+)?(?:\s|$)/.test(ctx.message?.text || '')) pending.delete(ctx.chat?.id);
+    return next();
+  });
 
   bot.command('start', async (ctx) => {
     const { state } = await loadState();
@@ -73,7 +77,7 @@ export function createBot(cfg) {
   });
 
   bot.command('openclaw', async (ctx) => {
-    if ((process.env.MSB_CC_ONLY || process.env.JARVIS_CC_ONLY) === '1') {
+    if (process.env.JARVIS_CC_ONLY === '1') {
       await ctx.reply(
         'Этот бот работает только с 👾 Claude Code.\nOpenClaw: /settings → ⚙️ Движки → ➕ OpenClaw.',
       );
@@ -131,20 +135,21 @@ export function createBot(cfg) {
       s.sessionEpoch = (s.sessionEpoch || 0) + 1;
       return s;
     });
-    await ctx.reply('Контекст сброшен.');
+    await ctx.reply('Начата новая беседа. Файлы и native-история сохранены.');
   });
 
   bot.command('compact', async (ctx) => {
-    await ctx.reply('Сжатие контекста: отправь агенту /compact в ходе или дождись автоcompact.');
+    await ctx.reply('Ручное сжатие через эту Telegram-команду пока не подключено. Сессию и файлы не менял.');
   });
 
   bot.command('undo', async (ctx) => {
-    await ctx.reply('Отмена правки: скажи агенту, какой файл вернуть, или /nocheck в штатном ядре.');
+    await ctx.reply('Автоматическая отмена правок через /undo пока не подключена. Опиши агенту, какую правку нужно вернуть.');
   });
 
   bot.command('sessions', async (ctx) => {
     const { sessionsScreen } = await import('./screens.mjs');
-    const view = sessionsScreen();
+    const { state } = await loadState();
+    const view = await sessionsScreen(state);
     await ctx.reply(view.text, { parse_mode: 'HTML', reply_markup: view.keyboard });
   });
 
@@ -162,26 +167,18 @@ export function createBot(cfg) {
 
   bot.command('status', async (ctx) => {
     const { state } = await loadState();
-    await ctx.reply(
-      [
-        `<b>Статус</b>`,
-        `Бот: <code>${cfg.botId}</code>`,
-        `Движок: ${state.engine === 'oc' ? 'OpenClaw' : 'Claude Code'}`,
-        `Модель: <code>${state.ccModel || state.model || 'opus'}</code>`,
-        `Workspace: <code>${cfg.workspace}</code>`,
-        `Сессия: <code>${(state.ccSessionId || '—').slice(0, 12)}</code>`,
-      ].join('\n'),
-      { parse_mode: 'HTML' },
-    );
+    const { statusScreen } = await import('./screens.mjs');
+    const view = await statusScreen(state, cfg);
+    await ctx.reply(view.text, { parse_mode: 'HTML' });
   });
 
   bot.command('cost', async (ctx) => {
     const { state } = await loadState();
     const day = new Date().toISOString().slice(0, 10);
-    const spent = state.costHistory?.[day] ?? 0;
-    const lim = state.dailySpendLimit ?? 0;
+    const spent = state.costHistory?.[day];
+    const limit = state.dailySpendLimit ?? 0;
     await ctx.reply(
-      `Расход за сегодня: <b>$${Number(spent).toFixed(2)}</b>${lim > 0 ? ` / лимит $${lim}` : ''}`,
+      `${typeof spent === 'number' && Number.isFinite(spent) ? `В сохранённой статистике за сегодня: <b>$${spent.toFixed(2)}</b>.` : 'В сохранённой статистике нет данных за сегодня.'}\nСохранённый лимит: ${limit > 0 ? `$${limit}/день` : 'без ограничений'}.\nСбор стоимости и применение лимита в open-core пока не подключены.`,
       { parse_mode: 'HTML' },
     );
   });
@@ -200,13 +197,13 @@ export function createBot(cfg) {
 
   bot.command('connect', async (ctx) => {
     await ctx.reply(
-      'VS Code туннель: скажи агенту поднять code-server/tunnel или открой /settings → Системные → SSH.',
+      'VS Code туннель: скажи агенту поднять code-server/tunnel или открой /settings → Системные → SSH. Эта команда сама туннель не запускает.',
     );
   });
 
   bot.command('recovery', async (ctx) => {
     await ctx.reply(
-      'Аварийный доступ: SSH на сервер под пользователем client. Ключи — /settings → Системные → SSH.',
+      'Аварийный доступ: используй существующее SSH-подключение или консоль хостера. Меню SSH — /settings → Системные → SSH.',
     );
   });
 
@@ -226,35 +223,36 @@ export function createBot(cfg) {
 
     const pend = pending.get(chatId);
     if (pend === 'auth-token') {
-      pending.delete(chatId);
-      await saveAuthToken(text);
+      const token = text.trim();
+      const { setEnvKey } = await import('../env/store.mjs');
       try {
-        await persistEnvKV(
-          text.trim().startsWith('sk-ant-') ? 'ANTHROPIC_API_KEY' : 'CLAUDE_CODE_OAUTH_TOKEN',
-          text.trim(),
-        );
-        await ctx.reply('Токен сохранён. Перезапускаюсь…');
-        setTimeout(() => process.exit(0), 600);
-      } catch (err) {
-        await ctx.reply(`Токен в процессе есть, .env не записался: ${err.message}`);
-      }
+        await setEnvKey(token.startsWith('sk-ant-') ? 'ANTHROPIC_API_KEY' : 'CLAUDE_CODE_OAUTH_TOKEN', token);
+        await saveAuthToken(token);
+      } catch (err) { await ctx.reply(`Токен не сохранён: ${err.message}`); return; }
+      pending.delete(chatId);
+      await ctx.reply('Токен сохранён. Перезапускаюсь…');
+      setTimeout(() => process.exit(0), 600);
       return;
     }
     if (pend === 'timezone') {
+      const timezone = text.trim();
+      try { new Intl.DateTimeFormat('en', { timeZone: timezone }).format(); }
+      catch { await ctx.reply('Неизвестный часовой пояс. Например: Europe/Moscow.'); return; }
       pending.delete(chatId);
       await updateState((s) => {
-        s.timezone = text.trim();
+        s.timezone = timezone;
         return s;
       });
-      await ctx.reply(`Часовой пояс: <code>${text.trim()}</code>`, { parse_mode: 'HTML' });
+      await ctx.reply(`Часовой пояс: <code>${escapeHtml(timezone)}</code>`, { parse_mode: 'HTML' });
       return;
     }
     if (pend?.startsWith('env:')) {
-      pending.delete(chatId);
       const key = pend.slice(4);
       const { setEnvKey } = await import('../env/store.mjs');
-      await setEnvKey(key, text.trim());
-      await ctx.reply(`Сохранил <code>${key}</code> в .env бота.`, { parse_mode: 'HTML' });
+      try { await setEnvKey(key, text.trim()); }
+      catch (err) { await ctx.reply(`Не сохранил: ${err.message}`); return; }
+      pending.delete(chatId);
+      await ctx.reply(`Сохранил <code>${escapeHtml(key)}</code> в .env бота. Это не проверка подключения сервиса. Для параметров запуска нужен перезапуск бота.`, { parse_mode: 'HTML' });
       return;
     }
     if (pend === 'feedback') {
@@ -274,11 +272,8 @@ export function createBot(cfg) {
       }
       const dir = path.join(process.env.HOME || '', 'projects', name);
       await fs.mkdir(dir, { recursive: true });
-      await updateState((s) => {
-        s.activeProject = name;
-        return s;
-      });
-      await ctx.reply(`✔ Проект <code>${name}</code> создан и активирован.`, { parse_mode: 'HTML' });
+      await updateState((s) => { s.activeProject = name; return s; });
+      await ctx.reply(`✔ Проект <code>${name}</code> создан и выбран. Переключение cwd в open-core пока не подключено.`, { parse_mode: 'HTML' });
       return;
     }
     if (pend === 'bot-token') {
@@ -287,7 +282,7 @@ export function createBot(cfg) {
       const { addBot } = await import('../bots/manage.mjs');
       const res = await addBot(text.trim(), { ownerId: cfg.adminId });
       if (res.ok) {
-        await ctx.reply(`✔ Бот <b>${res.botId}</b> добавлен и запущен.`, { parse_mode: 'HTML' });
+        await ctx.reply(`✔ Служба бота <b>${res.botId}</b> создана и запущена. Ответ в Telegram ещё нужно проверить.`, { parse_mode: 'HTML' });
       } else {
         await ctx.reply(`Не удалось добавить бота: ${res.error}`);
       }
@@ -397,7 +392,7 @@ export function createBot(cfg) {
         text = recognized.prompt;
         progress.beginThinking();
       }
-      const out = await runAgentTurn({ prompt: text, signal, onStatus: ev => progress.onStatus(ev) });
+      const out = await runTurn({ prompt: text, signal, onStatus: ev => progress.onStatus(ev) });
       await progress.stop();
       if (signal.aborted || out.error === 'aborted') { await stopped(); return; }
       turn.completed = true;
@@ -445,12 +440,12 @@ export function createBot(cfg) {
       await ctx.reply('Сначала подключи AI: /start');
       return;
     }
-    await ctx.reply('Медиа принято. В open-core пока перешли текст с описанием или дождись порта STT/vision.');
+    await ctx.reply('Обработка голоса и вложений в текущем Telegram-ядре пока не подключена. Перешли задачу текстом.');
   });
 
   // set commands after start
   bot.api
-    .setMyCommands(commandsForEngine('cc', (process.env.MSB_CC_ONLY || process.env.JARVIS_CC_ONLY) === '1'))
+    .setMyCommands(commandsForEngine('cc', process.env.JARVIS_CC_ONLY === '1'))
     .catch((err) => console.error('[msb/bot] setMyCommands failed:', err.message));
 
   return bot;
@@ -470,21 +465,6 @@ async function saveAuthToken(raw) {
     return s;
   });
 }
-
-async function persistEnvKV(key, value) {
-  const envPath = path.join(botRoot(), '.env');
-  ensureDir(botRoot());
-  let existing = '';
-  try {
-    existing = await fs.readFile(envPath, 'utf8');
-  } catch {
-    existing = '';
-  }
-  const lines = existing.split('\n').filter((l) => l && !l.startsWith(`${key}=`));
-  lines.push(`${key}=${value}`);
-  await fs.writeFile(envPath, `${lines.join('\n')}\n`, { mode: 0o600 });
-}
-
 
 function escapeHtml(s) {
   return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');

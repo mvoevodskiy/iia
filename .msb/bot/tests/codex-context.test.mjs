@@ -4,6 +4,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { readSessionContext, formatContextUsage } from '../src/agent/context.mjs';
+import { sessionsScreen, statusScreen, enginesScreen } from '../src/telegram/screens.mjs';
 
 const id = '0199a213-81c0-7800-8aa1-bbab2a035a53';
 const sessionId = `ext:codex:${id}`;
@@ -35,4 +36,45 @@ test('native context uses latest request including cache, survives rate-only upd
   assert.equal((await readSessionContext(sessionId, env)).contextTokens, 12000);
   await fs.appendFile(file, count(15000, null) + '\n');
   assert.equal(await readSessionContext(sessionId, env), null);
+});
+
+test('status, sessions and engines show active Codex, never stale Claude/model/context', async (t) => {
+  const home = await fs.mkdtemp(path.join(os.tmpdir(), 'msb-status-'));
+  t.after(() => fs.rm(home, { recursive: true, force: true }));
+  const env = { HOME: home };
+  const folder = path.join(home, '.msb/bots/default');
+  await fs.mkdir(folder, { recursive: true });
+  await fs.writeFile(path.join(folder, 'ext-providers.json'), JSON.stringify({ active: 'codex',
+    models: { codex: 'gpt-6.1-terra' }, efforts: { codex: 'max' } }));
+  const state = { engine: 'cc', extAuthBypass: 'codex', ccModel: 'opus', ccEffort: 'high',
+    lastCcUsage: { sessionId, contextTokens: 71142, contextWindow: 475000 } };
+  const cfg = { botId: 'default', workspace: '/tmp/test' };
+  const status = await statusScreen(state, cfg, env);
+  assert.match(status.text, /Codex/);
+  assert.match(status.text, /gpt-6.1-terra/);
+  assert.match(status.text, /max/);
+  assert.doesNotMatch(status.text, /Claude|opus|15%/);
+  assert.match(status.text, /нет данных текущей сессии/);
+  assert.doesNotMatch((await sessionsScreen(state, env)).text, /Claude/);
+  assert.doesNotMatch((await enginesScreen(state, env)).text, /Claude/);
+});
+
+test('all screens honor provider selection and native config fallback before first turn', async (t) => {
+  const home = await fs.mkdtemp(path.join(os.tmpdir(), 'msb-native-display-'));
+  t.after(() => fs.rm(home, { recursive: true, force: true }));
+  const env = { HOME: home };
+  await fs.mkdir(path.join(home, '.msb/bots/default'), { recursive: true });
+  await fs.mkdir(path.join(home, '.codex'), { recursive: true });
+  await fs.writeFile(path.join(home, '.msb/bots/default/ext-providers.json'), JSON.stringify({ active: 'codex' }));
+  await fs.writeFile(path.join(home, '.codex/config.toml'), 'model = "gpt-6.1-terra"\nmodel_reasoning_effort = "max"\n[profiles.test]\nmodel = "other"\n');
+  const state = { engine: 'cc' };
+  const cfg = { botId: 'default', workspace: '/tmp/test' };
+  const status = await statusScreen(state, cfg, env);
+  assert.match(status.text, /gpt-6.1-terra/);
+  assert.match(status.text, /max/);
+  assert.match((await sessionsScreen(state, env)).text, /Codex/);
+  assert.match((await enginesScreen(state, env)).text, /Codex/);
+  for (const screen of [sessionsScreen, enginesScreen]) {
+    assert.doesNotMatch((await screen({ extAuthBypass: 'codex' }, { ...env, JARVIS_CC_ONLY: '1' })).text, /Codex/);
+  }
 });

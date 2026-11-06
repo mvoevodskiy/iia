@@ -36,8 +36,8 @@ test('engine screen preserves baseline controls and renders the same optional Co
   const state = { engine: 'cc' };
   const provider = await buildEngineProviderView(state, env, home);
   for (const snap of [null, { helper: 'fixture', msb: { state: 'running' }, openclaw: { installed: false } }, { error: 'NO_STATE' }]) {
-    const base = await enginesScreen(state, snap || undefined);
-    const extended = await enginesScreen(state, snap || undefined, provider);
+    const base = await enginesScreen(state, env);
+    const extended = await enginesScreen(state, env, provider);
     const buttons = extended.keyboard.inline_keyboard.flat();
     assert.deepEqual(buttons.filter(b => b.callback_data !== 'ext:conn:set:codex'), base.keyboard.inline_keyboard.flat());
     assert.equal(buttons.filter(b => b.callback_data === 'ext:conn:set:codex').length, 1);

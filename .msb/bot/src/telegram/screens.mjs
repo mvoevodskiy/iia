@@ -12,6 +12,8 @@ import { QUICK_KEYS, listEnvEntries } from '../env/store.mjs';
 import { checkOwnUpdates } from '../updates/client.mjs';
 import { escapeHtml } from './edit.mjs';
 import { CC_ONLY_OC_BLOCK } from './commands.mjs';
+import { agentDisplay } from '../agent/display.mjs';
+import { readSessionContext, formatContextUsage } from '../agent/context.mjs';
 
 const BLANK = '⠀';
 
@@ -54,11 +56,12 @@ export async function agentScreen(state) {
     xhigh: 'xhigh',
     max: 'max',
   };
-  const modelLabel = resolveModel(state).replace(/^claude-/, '');
-  const effort = state.ccEffort || state.effort;
+  const display = await agentDisplay(state);
+  const modelLabel = display.model.replace(/^claude-/, '');
+  const effort = display.effort;
   const effortLabel = effort ? effortLabels[effort] || effort : null;
-  const perm = permLabels[state.permissionMode || state.permMode || 'auto'] || 'без спроса';
-  const engine = state.engine === 'oc' ? 'OpenClaw' : '👾 Claude Code';
+  const perm = display.engine === 'Codex' ? 'полный доступ, без подтверждений' : permLabels[state.permissionMode || state.permMode || 'auto'] || 'без спроса';
+  const engine = display.engine;
 
   const lines = [
     `Модель: <b>${escapeHtml(modelLabel)}</b>`,
@@ -134,7 +137,8 @@ export function permModeScreen() {
 
 export async function connScreen(state, env = process.env) {
   const connected = hasClaudeAuth(env, state);
-  const ccOnly = (env.MSB_CC_ONLY || env.JARVIS_CC_ONLY) === '1';
+  const display = await agentDisplay(state, env);
+  const ccOnly = env.JARVIS_CC_ONLY === '1';
   if (ccOnly && state.engine === 'oc') {
     return {
       text: CC_ONLY_OC_BLOCK,
@@ -145,13 +149,15 @@ export async function connScreen(state, env = process.env) {
     };
   }
 
-  const text = connected
+  const text = display.engine !== 'Claude Code'
+    ? `<b>🔌 Авторизация Claude</b>\n\nСейчас отвечает ${escapeHtml(display.engine)}. Здесь можно обновить токен Claude: «🔑 Новый токен».\n${BLANK}`
+    : connected
     ? `<b>🔌 Подключение</b>\n\nClaude Code работает, подписка подключена ✔\n\nЕсли токен перестал работать, пришли новый: «🔑 Новый токен».\n${BLANK}`
     : `<b>🔌 Подключение</b>\n\nClaude Code ждёт подписку Anthropic.\n\nПришли токен подписки: «🔑 Новый токен». Как его получить — в инструкции.\n${BLANK}`;
 
   const kb = new InlineKeyboard();
   if (connected) {
-    kb.text('👾 Claude Code ✓ включен', 'settings:conn:noop').row();
+    kb.text(display.engine === 'Claude Code' ? '👾 Claude Code ✓ включен' : '👾 Claude · настройка токена', 'settings:conn:noop').row();
     kb.text('🔑 Новый токен', 'settings:auth:switch-sub').row();
   } else {
     kb.text('🔑 Новый токен', 'settings:auth:switch-sub').row();
@@ -191,7 +197,7 @@ export function extrasScreen() {
 
 🌐 <b>SSH доступ к серверу</b> — ключи, файрвол, прямое подключение.
 ♻️ <b>Перезапустить бота</b> — нужен после обновления кода.
-🎤 <b>Расшифровка голоса</b> — Deepgram (облако, $200 в подарок).
+🎤 <b>Расшифровка голоса</b> — Deepgram; обработчик голоса в open-core пока не подключён.
 📦 <b>Обновления</b> — свой канал (не vendor создателя).
 💾 <b>Хранилище мониторинга</b> — в Мониторинг → ⚙️ Настройки.`,
     keyboard: new InlineKeyboard()
@@ -216,6 +222,7 @@ Vendor-канал создателя закрытого ядра <b>отключ
 
 Свой сервис: <code>MSB_OWN_UPDATES_URL</code>
 Статус: ${escapeHtml(st.message)}
+Установка обновлений через меню пока не реализована.
 ${BLANK}`,
     keyboard: new InlineKeyboard()
       .text('🔄 Проверить', 'settings:updates')
@@ -253,7 +260,7 @@ export async function botsScreen() {
   const lines = [
     '<b>🤖 Мои боты</b>',
     '',
-    'Несколько ботов на Claude Code на одном сервере: у каждого свой чат, свои настройки и характер.',
+    'Несколько ботов на одном сервере: у каждого свой чат, свои настройки и характер.',
     '',
   ];
   for (const b of bots) {
@@ -305,7 +312,8 @@ export async function envScreen() {
   const lines = [
     '<b>🔑 Переменные окружения</b>',
     '',
-    `В <code>.env</code> бота сейчас ключей: ${entries.length}`,
+    `Записей в <code>.env</code> бота: ${entries.length}`,
+    'Это параметры, включая служебные; вход Codex хранится отдельно.',
     '',
   ];
   for (const e of entries.slice(0, 25)) {
@@ -336,7 +344,7 @@ export function tzScreen(state) {
 export function limitScreen(state) {
   const lim = state.dailySpendLimit ?? 10;
   return {
-    text: `<b>💰 Лимит API</b>\n\nСейчас: ${lim > 0 ? `$${lim}/день` : 'без ограничений'}.\nПришли число (USD) или 0 для снятия лимита.\n${BLANK}`,
+    text: `<b>💰 Лимит API</b>\n\nСохранённый лимит: ${lim > 0 ? `$${lim}/день` : 'без ограничений'}.\nВыбери значение кнопкой. Проверка и применение лимита в open-core пока не подключены.\n${BLANK}`,
     keyboard: new InlineKeyboard()
       .text('$10', 'settings:limit:set:10')
       .text('$25', 'settings:limit:set:25')
@@ -360,38 +368,19 @@ ${BLANK}`,
   };
 }
 
-export function enginesScreen(state, engineSnap = null, providerView = null) {
-  const eng = providerView?.activeTitle || (state.engine === 'oc' ? 'OpenClaw' : 'Claude Code');
-  const j = (engineSnap?.msb || engineSnap?.jarvis);
-  const o = engineSnap?.openclaw;
-  const helper = engineSnap?.helper ? String(engineSnap.helper) : '—';
-  const jLine = j
-    ? `MSB-бот: <b>${escapeHtml(j.state)}</b>${j.bots?.length ? ` (${j.bots.length})` : ''}`
-    : 'MSB-бот: нет данных helper';
-  const oLine = o
-    ? `OpenClaw: <b>${o.installed ? (o.enabled ? o.gateway || 'on' : 'off') : 'не установлен'}</b>`
-    : 'OpenClaw: нет данных';
-  const err = engineSnap?.error === 'NO_STATE'
-    ? '\n\n⚠️ Нет /run/msb-engine/state.json — проверь msb-engine.path'
-    : '';
+export async function enginesScreen(state, env = process.env, providerView = null) {
+  const eng = providerView?.activeTitle || (await agentDisplay(state, env)).engine;
   const keyboard = new InlineKeyboard().text('👾 Claude Code', 'settings:engine:set:cc').row();
   for (const choice of providerView?.choices || []) keyboard.text(choice.text, choice.callback_data).row();
   return {
     text: `<b>⚙️ Движки</b>
 
 Сейчас отвечает: <b>${escapeHtml(eng)}</b>
-Helper: <code>${escapeHtml(helper)}</code>
 
-${jLine}
-${oLine}${err}
-
-Установка OpenClaw из меню — в v1.1. Сейчас: статус / вкл-выкл, если OC уже на боксе.
+OpenClaw в open-core ещё переносится. Текущее подключение можно сохранить.
 ${BLANK}`,
     keyboard: keyboard
-      .text('🔄 Статус helper', 'eng:status')
-      .row()
-      .text('▶️ OC', 'eng:oc:on')
-      .text('⏸ OC', 'eng:oc:off')
+      .text('➕ OpenClaw', 'eng:add')
       .row()
       .text('« Назад', 'menu:settings'),
   };
@@ -413,7 +402,7 @@ export async function autonomyHomeScreen() {
     .row()
     .text('« Назад', 'menu:back');
   return {
-    text: `<b>🥷 Автономка</b>\n\nАктивных задач: ${active}\nСкажи словами, что делать и когда — заведу задачу.\n${BLANK}`,
+    text: `<b>🥷 Автономка</b>\n\nАктивных задач: ${active}\nПоддерживаются интервалы: «каждые 6 часов проверяй диск».\n${BLANK}`,
     keyboard: kb,
   };
 }
@@ -425,16 +414,16 @@ export function autonomyWhatScreen() {
 Обычно я жду твоего сообщения и отвечаю. Автономка это когда я работаю сам, без твоей команды: в нужное время беру задачу, делаю её и присылаю результат.
 
 <b>Как завести</b>
-Скажи словами, что делать и когда. Например: <i>«каждое утро в 9 смотри, что нового у конкурентов»</i> или <i>«раз в час проверяй сервер и пиши, только если сломалось»</i>. Я заведу задачу и покажу, что ей разрешено.
+Скажи словами, что делать и когда. Например: <i>«каждое утро в 9 смотри, что нового у конкурентов»</i> или <i>«раз в час проверяй сервер и пиши, только если сломалось»</i>. Штатный парсер сейчас поддерживает интервалы вида «каждые 6 часов …».
 
 <b>Что можно</b>
-Посмотреть список задач и открыть любую, поставить на паузу или удалить, посмотреть историю: сколько раз задача ходила, что сделала, во что обошлась.
+Список задач работает. Карточки, пауза, удаление и просмотр истории через меню пока не подключены.
 
 <b>Про права</b>
-У каждой задачи свои границы, и они настоящие, а не на словах. Если задаче позволено только читать, инструментов записи у неё просто нет.
+Настройка прав сохраняется, но отдельные границы задач в open-core пока не реализованы. Используются права и сессия выбранного CLI.
 
 <b>Чем это отличается от таймеров</b>
-Таймер повторяет текст в назначенный срок, и всё. Задача умеет больше: у неё есть права, отчёт о работе и история прогонов.
+Интервальные задачи выполняются планировщиком. Разовые таймеры и их управление через меню пока не подключены.
 ${BLANK}`,
     keyboard: new InlineKeyboard().text('« Назад', 'auto:home'),
   };
@@ -468,7 +457,7 @@ export function autonomyTimersScreen() {
   return {
     text: `⏳ <b>Таймеры</b>
 
-Нет активных таймеров.
+Просмотр и управление разовыми таймерами в open-core пока не подключены.
 
 Скажи агенту:
 <i>«каждый день в 9 проверяй новости по AI»</i>
@@ -482,7 +471,7 @@ export function autonomyHistoryScreen() {
   return {
     text: `🕓 <b>История</b>
 
-Пока нет прогонов. Они появятся в <code>~/.msb/autonomy/runs.jsonl</code> после первых задач.
+Просмотр журнала через меню пока не подключён. Прогоны сохраняются в <code>~/.msb/autonomy/runs.jsonl</code>.
 ${BLANK}`,
     keyboard: new InlineKeyboard().text('« Назад', 'auto:home'),
   };
@@ -494,9 +483,9 @@ export async function autonomyRightsScreen() {
   return {
     text: `<b>🔓 Права фоновых задач</b>
 
-Сейчас: <b>${on ? 'включены' : 'выключены'}</b>
+Сохранённая настройка: <b>${on ? 'включены' : 'выключены'}</b>
 
-По умолчанию фоновые задачи без прав администратора сервера. Включённые права получат только задачи, которым можно читать, сохранять файлы и запускать команды.
+В open-core эта настройка пока не применяется исполнителем. Фоновые задачи используют права и сессию выбранного CLI.
 ${BLANK}`,
     keyboard: new InlineKeyboard()
       .text(on ? '🔒 Выключить права' : '🔓 Включить права', 'auto:rights-toggle')
@@ -575,12 +564,13 @@ export async function monitorSourcesScreen() {
 
 export async function monitorDigestScreen() {
   const cfg = await loadMonitorConfig();
+  const { state } = await loadState();
   const on = cfg.digest?.enabled !== false;
   return {
     text: `<b>📨 Дайджест</b>
 
 Сейчас: <b>${on ? 'включён' : 'выключен'}</b>
-Время: <b>${cfg.digest?.hour ?? 9}:00</b> (${process.env.MSB_TIMEZONE || 'Europe/Moscow'})
+Время: <b>${cfg.digest?.hour ?? 9}:00</b> (${escapeHtml(state.timezone || process.env.MSB_TIMEZONE || 'Europe/Moscow')})
 Материалов: <b>${cfg.digest?.topN ?? 10}</b>
 ${BLANK}`,
     keyboard: new InlineKeyboard()
@@ -614,7 +604,7 @@ export function monitorSettingsScreen() {
   return {
     text: `<b>⚙️ Настройки мониторинга</b>
 
-Хранилище по умолчанию — jsonl в <code>~/.msb/monitor/</code>.
+Выбор хранилища сохраняется. Текущий open-core записывает материалы в JSONL; backend SQLite пока не подключён.
 ${BLANK}`,
     keyboard: new InlineKeyboard()
       .text('💾 jsonl', 'mon:storage:set:jsonl')
@@ -633,7 +623,7 @@ export function mcpScreen() {
 Внешние сервисы — транскрипты, скрейпинг, базы данных и другие инструменты.
 ${BLANK}`,
     keyboard: new InlineKeyboard()
-      .text('📁 workspace (0)', 'mcp:folder:workspace')
+      .text('📁 workspace', 'mcp:folder:workspace')
       .row()
       .text('« Назад', 'menu:back'),
   };
@@ -645,7 +635,7 @@ export function mcpWorkspaceScreen() {
 
 Доступны агенту во всех проектах.
 
-<i>Нет серверов</i>
+<i>Список native MCP пока не читается этим экраном.</i>
 ${BLANK}`,
     keyboard: new InlineKeyboard()
       .text('➕ Добавить', 'mcp:add')
@@ -658,7 +648,7 @@ export function mcpAddScreen() {
   return {
     text: `<b>➕ MCP сервер</b>
 
-Быстрая установка или свой конфиг.
+Прежние пункты настройки. Их установка в open-core пока не подключена.
 ${BLANK}`,
     keyboard: new InlineKeyboard()
       .text('Supadata', 'mcp:setup:supadata')
@@ -672,17 +662,19 @@ export function skillsScreen() {
   return {
     text: `<b>🧩 Навыки</b>
 
-Навыки из <code>~/workspace/.claude/skills/</code>. Пока список пуст или читается с диска при следующем обновлении open-core.
+Список навыков выбранного CLI пока не читается этим экраном.
 ${BLANK}`,
     keyboard: new InlineKeyboard().text('« Назад', 'menu:back'),
   };
 }
 
-export function sessionsScreen() {
+export async function sessionsScreen(state = {}, env = process.env) {
+  const context = formatContextUsage(await readSessionContext(state.ccSessionId, env));
   return {
     text: `<b>💬 Сессии</b>
 
-Текущая сессия Claude Code хранится в state. Новая сессия — кнопка ниже или /newtask.
+Текущая сессия: ${escapeHtml((await agentDisplay(state, env)).engine)}. Новая сессия — кнопка ниже или /newtask.
+${context || 'Контекст: нет данных текущей сессии.'}
 ${BLANK}`,
     keyboard: new InlineKeyboard()
       .text('🆕 Новая сессия', 'menu:newtask')
@@ -695,7 +687,7 @@ export function projectsScreen() {
   return {
     text: `<b>📁 Проекты</b>
 
-Проекты живут в <code>~/projects/</code>. Создай словами или кнопкой.
+Проекты живут в <code>~/projects/</code>. Кнопка создаёт папку и сохраняет выбранный проект. Переключение cwd в open-core пока не подключено.
 ${BLANK}`,
     keyboard: new InlineKeyboard()
       .text('➕ Новый проект', 'menu:newproject')
@@ -708,7 +700,7 @@ export function setupScreen() {
   return {
     text: `Сначала подключи AI.
 
-Нужна подписка Claude (Max) или ключ API.
+Для Claude нужен его токен. Codex и другие CLI подключаются через /settings → «Подключения».
 Нажми «🔑 Новый токен» и пришли вывод <code>claude setup-token</code> или ключ <code>sk-ant-…</code>.
 ${BLANK}`,
     keyboard: new InlineKeyboard()
@@ -722,7 +714,7 @@ export function notificationsScreen() {
   return {
     text: `<b>🔕 Отключённые уведомления</b>
 
-Ничего не отключено.
+Этот экран пока не читает список отключённых уведомлений.
 ${BLANK}`,
     keyboard: new InlineKeyboard().text('« Назад', 'settings:back'),
   };
@@ -732,15 +724,33 @@ export function sttScreen() {
   return {
     text: `<b>🎤 Расшифровка голоса</b>
 
-Провайдер: Deepgram. Ключ — в «Переменные окружения».
+Провайдер: Deepgram. Ключ — в «Переменные окружения». Обработчик голоса в open-core пока не подключён.
 ${BLANK}`,
     keyboard: new InlineKeyboard().text('« Назад', 'settings:extras'),
   };
 }
 
-export function placeholder(title, back) {
+export function placeholder(title, back, message = 'Этот раздел пока не реализован в Telegram. Настройки не изменены.') {
   return {
-    text: `<b>${title}</b>\n\nЭкран как в штатном ядре. Логика этого шага ещё переносится в open-core.\n${BLANK}`,
+    text: `<b>${escapeHtml(title)}</b>\n\n${escapeHtml(message)}\n${BLANK}`,
     keyboard: new InlineKeyboard().text('« Назад', back),
+  };
+}
+
+
+export async function statusScreen(state, cfg, env = process.env) {
+  const agent = await agentDisplay(state, env);
+  const context = formatContextUsage(await readSessionContext(state.ccSessionId, env));
+  return {
+    text: [
+      '<b>Статус</b>',
+      `Бот: <code>${escapeHtml(cfg.botId)}</code>`,
+      `Движок: ${escapeHtml(agent.engine)}`,
+      `Модель: <code>${escapeHtml(agent.model)}</code>`,
+      ...(agent.effort ? [`Глубина: <code>${escapeHtml(agent.effort)}</code>`] : []),
+      context || 'Контекст: нет данных текущей сессии.',
+      `Workspace: <code>${escapeHtml(cfg.workspace)}</code>`,
+      `Сессия: <code>${escapeHtml((state.ccSessionId || '—').slice(0, 24))}</code>`,
+    ].join('\n'),
   };
 }
