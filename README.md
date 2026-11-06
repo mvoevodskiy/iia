@@ -1,58 +1,47 @@
-# MSB
+# Open-core Telegram-агент
 
-Платформа Telegram-агента на Linux (systemd). Репозиторий разделён на **ядро** и **обвязку**.
+[Карта кода: задача → модуль → функция → тест](docs/CODEMAP.md) ·
+[Границы реализации](.msb/bot/OPEN-CORE.md) · [Сборка и выпуск](tools/release/README.md)
 
-Ветка **`open-core`**: ядро — открытый код в `.msb/bot/src/` (не минифицированный бандл).
-Подробности: [.msb/bot/OPEN-CORE.md](.msb/bot/OPEN-CORE.md). Откат: `MSB_USE_CLOSED_CORE=1`.
+Одна исходная база для ядра и CLI-обвязки. Текущая canonical-ветка —
+`codex/open-core-reference-tests`. Профили `msb` и `jar1` используют один код;
+отдельная копия исходников под `.iia` не поддерживается.
 
-## Два слоя
+## Слои и входы
 
-| Слой | Путь | Запуск | Обязателен? |
-|------|------|--------|-------------|
-| **Ядро** | `.msb/`, `bootstrap/`, `systemd/`, `usr-local-*` | `node .msb/bot/index.js` | да |
-| **Обвязка** | `overlay/` | `node .msb/bot/run.mjs` (после установки) | нет |
+| Слой | Исходники | Вход / карта |
+|---|---|---|
+| Открытое ядро | `.msb/bot/src` | [index.js](.msb/bot/index.js) → [main](.msb/bot/src/main.mjs) → [Telegram](.msb/bot/src/telegram/README.md) |
+| CLI-провайдеры | `overlay/bot/ext` | [run.mjs](overlay/bot/run.mjs) → [интеграция](overlay/bot/ext/README.md#интеграция-telegram) → то же ядро |
+| Runtime-профиль | `.msb/bot/shared` | [Пути, env aliases и режим OS-движков](.msb/bot/shared/README.md) |
+| Выпуск | `tools/release` | [Один commit: код, тесты и инструменты](tools/release/README.md) |
+| Старый vendor | `.msb/bot/vendor` | [Эталон пользовательского поведения](.msb/bot/vendor/README.md) |
 
-Ядро отвечает в Telegram через Claude Code CLI. Обвязка добавляет Cursor / Codex / Qwen, LAN SSH и канал обновлений — её можно не ставить.
+Чистое ядро использует Claude CLI. Обвязка добавляет Codex/Cursor/Qwen через
+PATH-shim и совместимый stream-json. Codex — выбор CLI-провайдера; OS helper
+`msb-engine` управляет отдельными сервисами и имеет другой маршрут.
 
-```
-репозиторий
-├── .msb/bot/index.js     ← ядро (единственный обязательный вход)
-├── bootstrap/            ← установка ядра на сервер
-├── systemd/              ← ExecStart → index.js
-└── overlay/              ← opt-in
-    ├── bot/ext/          ← адаптеры CLI
-    ├── bot/run.mjs       ← вход с обвязкой
-    ├── install.sh        ← накладывает overlay на ядро
-    └── msb-updates/      ← хаб релизов (отдельный сервис)
-```
+## Исходники и установленный код
 
-## Установка только ядра
+`msb` по умолчанию использует `~/.msb`, `MSB_*` и native OS-engine routes.
+`jar1` сохраняет `~/.iia`, совместимость `IIA_*`, прежние service/data paths и
+legacy engine UI без OS-миграции. Правила выбора — в [shared profile](.msb/bot/shared/README.md).
+Native auth, конфигурация владельца, сессии и workspace не входят в тиражируемый код.
 
-```bash
-sudo ./bootstrap/install.sh \
-  --source "$PWD" \
-  --env-file /root/msb.env \
-  --bot-env-file /root/bot-default.env
-```
+[Release pipeline](tools/release/README.md) экспортирует код, проверки и инструменты
+из одного commit. Поддерживаемый откат — восстановление предыдущего набора кода
+из release backup с сохранением текущих данных владельца. Vendor bundle не входит
+в runtime выпуска и не используется как путь отката.
 
-Юнит `msb-bot@default` стартует **`index.js`**. Обвязки на диске нет.
+## Установка и эксплуатация
 
-## Установка ядра + обвязка
+- [Bootstrap](bootstrap/README.md) и [overlay installer](overlay/README.md) описывают
+  установку; это отдельная область от обновления уже работающего JAR1.
+- [Политика обновлений](bootstrap/UPDATE-POLICY.md): код обновляется отдельно от
+  `.env`, workspace, auth и пользовательского состояния.
+- [Reference-проверки](.msb/bot/tests/reference/README.md) связывают старый UX с
+  настоящими обработчиками нового ядра и показывают границы тестирования.
 
-```bash
-sudo ./bootstrap/install.sh ... --with-ext
-# или позже:
-sudo ./overlay/install.sh --source "$PWD"
-```
-
-Drop-in `60-ext-entry.conf` переключает `ExecStart` на `run.mjs`. Удаление drop-in возвращает чистое ядро.
-
-## Политика обновлений
-
-См. [bootstrap/UPDATE-POLICY.md](bootstrap/UPDATE-POLICY.md): код бота можно заменять; workspace и `.env` владельца — нет.
-
-## Что не входит
-
-- Продуктовые проекты и секреты владельца
-- Боевой `workspace/`, дневники чатов, skeleton’ы живых ботов
-- OpenClaw / R2-backup (отдельные опции платформы)
+Полная эквивалентность старому ядру не заявлена: [неперенесённые сценарии](.msb/bot/OPEN-CORE.md#границы-реализации)
+остаются явными. Каждый единый выпуск требует зафиксированного commit, проверки
+артефакта и отдельной выкладки; локальный PASS не является живой Telegram-приёмкой.

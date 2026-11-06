@@ -1,3 +1,7 @@
+/**
+ * Сборка handlers, общих pending/running и жизненного цикла хода.
+ * Навигация: [Telegram](./README.md) → [callbacks](./router.mjs), [voice](./voice.mjs).
+ */
 import { Bot } from 'grammy';
 import { autoRetry } from '@grammyjs/auto-retry';
 import { presentationAwareRetry, presentationSignal } from './presentation-api.mjs';

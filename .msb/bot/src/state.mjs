@@ -7,6 +7,7 @@ import { ensureDir, statePath } from './paths.mjs';
  * Канон полей (CONTRACT-state-menus): authMode, hasSubscriptionAuth, engine,
  * ccSessionId, ccModel, ccEffort, permissionMode, extAuthBypass.
  * Алиасы model/effort/permMode читаются для старых записей.
+ * Навигация: [Состояние](../../../docs/CODEMAP.md#состояние-и-конфигурация), [profile](../shared/README.md).
  */
 export async function loadState(env = process.env) {
   const file = statePath(env);

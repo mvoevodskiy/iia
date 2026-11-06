@@ -1,93 +1,53 @@
-# MSB open-core
+# Открытое ядро
 
-Открытая замена закрытого бандла `index.js` (Jarvis / Constructor Agent).
+[← Карта кода](../../docs/CODEMAP.md) · [Профили](shared/README.md) ·
+[Выпуск и откат](../../tools/release/README.md)
 
-## Зачем
+Рабочая реализация находится в `src/`. Старый [vendor](vendor/README.md) — эталон
+сценариев, текстов и визуального поведения. Он не экспортируется в runtime
+поддерживаемого выпуска; откат выполняется к предыдущему release code backup.
+Историческая ветка `MSB_USE_CLOSED_CORE` в исходном `index.js` сохранена для
+совместимости и не является альтернативной поддерживаемой сборкой.
 
-Закрытое ядро — один минифицированный файл ~3 МБ. Его нельзя нормально развивать:
-любое изменение обвязки строилось вокруг shim/патчей grammy без доступа внутрь.
+## Маршруты
 
-Ветка `open-core` держит **читаемое ядро** в `.msb/bot/src/` с тем же внешним
-контрактом (env, `state.json`, Claude CLI stream-json, overlay `run.mjs`).
+| Задача | Модуль |
+|---|---|
+| Вход процесса, config, shutdown | [index](index.js) → [main](src/main.mjs) |
+| Меню, формы, голос, stop, ответ | [Telegram](src/telegram/README.md) |
+| CLI, stream, native context, запись сессии | [Исполнение агента](src/agent/README.md) |
+| Голосовой backend | [Media / STT](src/media/README.md) |
+| Данные окружения | [Env](src/env/README.md) |
+| Расписания и источники | [Автономка](src/autonomy/README.md), [Мониторинг](src/monitor/README.md) |
+| Управление экземплярами | [Мои боты](src/bots/README.md) |
+| OS helper | [Engines](src/engines/README.md) |
+| Codex и другие CLI | [Overlay](../../overlay/bot/ext/README.md) |
 
-## Запуск
+## Граница совместимости
 
-```bash
-# штатно (открытое ядро)
-node .msb/bot/index.js
+Ядро и overlay читают один [runtime profile](shared/README.md) и используют
+совместимые `state.json`, `ext-providers.json`, CLI argv/stream-json и callback IDs.
+Профиль `jar1` сохраняет `.iia`; профиль `msb` использует `.msb`. Источник кода один.
 
-# откат к сохранённому бандлу
-MSB_USE_CLOSED_CORE=1 node .msb/bot/index.js
-```
+Реализованы текстовый/голосовой ход, Deepgram/STT_COMMAND, отмена хода, прежняя
+индикация и доставка ответа, выбор CLI-провайдера, native Codex context,
+редактирование env, базовые интервальные задачи и сбор источников мониторинга.
+Покрытие конкретных связей указано в модульных картах и [reference README](tests/reference/README.md).
 
-systemd / bootstrap не меняются: `ExecStart=…/bot/index.js`.
+## Границы реализации
 
-## Структура
+- Фото, видео и документы не имеют полноценного обработчика содержимого.
+- Native MCP/skills inventory и установка MCP через эти экраны не подключены.
+- Часть карточек/действий автономки, разовые таймеры и просмотр её журнала остаются
+  информационными экранами; сохранённые autonomy rights не задают отдельную границу исполнения.
+- Проект можно сохранить в состоянии, но его выбор не переключает cwd runner.
+- Лимит API сохраняется; соответствующее ограничение исполнения не реализовано.
+- Мониторинг пишет JSONL; выбор SQLite в UI не включает SQLite backend.
+- OpenClaw как runner в общем ходе не реализован. Native OS helper имеет отдельные
+  ограниченные действия и отключён для JAR1; это не интеграция OpenClaw в CLI-ход.
+- Проверка своего канала обновлений есть, apply из Telegram не реализован.
 
-```
-.msb/bot/
-├── index.js              ← переключатель open/closed
-├── src/
-│   ├── main.mjs
-│   ├── config.mjs / paths.mjs / state.mjs / heartbeat.mjs
-│   ├── agent/            ← Claude Code stream-json
-│   ├── telegram/         ← grammy, меню, ворота ADMIN_ID
-│   └── autonomy/         ← задачи + планировщик
-├── tests/
-└── vendor/
-    ├── index.closed.js   ← исходный бандл (эталон поведения)
-    ├── deobfuscated.js   ← webcrack (для препарирования)
-    └── CONTRACT-*.md     ← снятые контракты подсистем
-```
-
-## Совместимость с обвязкой
-
-`overlay/bot/run.mjs` по-прежнему:
-
-1. ставит PATH-shim `claude`;
-2. патчит `Bot` до `import('./index.js')`;
-3. читает/пишет `bots/<id>/state.json` и `ext-providers.json`.
-
-Открытое ядро сохраняет поля `authMode`, `hasSubscriptionAuth`, `ccSessionId`,
-`model`, `effort`, `permMode`, `engine`, `extAuthBypass`.
-
-## Что уже есть (0.3)
-
-- Telegram UI: hub / агент / настройки / автономка / мониторинг / MCP / …
-- **Мониторинг рабочий**: источники, poll, дайджест, `~/.msb/monitor/`
-- **Мои боты**: list/add/remove через `sudo bot-ctl.sh` (без хаба создателя)
-- **Переменные окружения**: CRUD в `.env` бота + быстрые ключи
-- **Обновления**: только свой канал `MSB_OWN_UPDATES_URL` (apply — позже); vendor отключён
-- Ход агента Claude CLI, автономка, heartbeat, откат `MSB_USE_CLOSED_CORE=1`
-- **OS-обвязка**: `msb-engine` вместо `jarvis-engine` (IPC `~/.msb/engine/request`, state `/run/msb-engine/state.json`); см. `docs/tdr/msb-engine-os-replace.md`
-
-## Обновления
-
-| Канал | Статус |
-|-------|--------|
-| Vendor puller/sync создателя | не трогает open-core |
-| Свой сервис (`MSB_OWN_UPDATES_URL`) | check есть; apply — когда сервис готов |
-
-## Что дальше
-
-| Подсистема | Статус |
-|------------|--------|
-| agent-cc глубина (budget/subagents) | дальше |
-| OpenClaw | enable/disable через msb-engine; install — v1.1 |
-| MCP install | UI есть |
-| SSH constructor API | overlay / локальный IP |
-| Own updates apply | после сервиса |
-
-Эталон поведения и строки UI — в `vendor/deobfuscated.js` и CHANGELOG.md.
-
-## Тесты
-
-```bash
-cd .msb/bot && npm test
-```
-
-## Политика обновлений
-
-Puller создателя тянул закрытый `bot/index.js` с их сервера. На open-core
-это ломает смысл ветки. Не включай stock puller против этой ветки, либо
-исключи `bot/**` из манифеста. Канал обвязки `overlay/msb-updates` — свой.
+Сохранённый внешний вид или успешный отдельный тест не доказывают полный паритет.
+Исторические checkpoint-файлы — история проверок. Результат текущего выпуска
+берётся из его same-commit проверки; факт выкладки и живой приёмки фиксируется
+отдельным операторским отчётом для этого source SHA.

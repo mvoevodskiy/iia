@@ -1,21 +1,20 @@
-# Vendor reference (закрытое ядро)
+# Эталон старого поведения
+
+[← Открытое ядро](../OPEN-CORE.md) · [Reference tests](../tests/reference/README.md)
 
 | Файл | Назначение |
-|------|------------|
-| `index.closed.js` | Исходный минифицированный бандл (~3 МБ) |
-| `deobfuscated.js` | webcrack unminify (~122k строк) — эталон при переносе фич |
-| `snippets/` | Вырезки ключевых участков с номерами строк |
-| `CONTRACT-*.md` | Контракты подсистем (agent-cc, state/menus, autonomy) |
+|---|---|
+| [index.closed.js](index.closed.js) | Исходный закрытый bundle для сопоставления |
+| [deobfuscated.js](deobfuscated.js) | Читаемый эталон сценариев и UI |
+| [snippets](snippets/) | Вырезки с номерами строк оригинала |
+| [state/menus](CONTRACT-state-menus.md), [agent-cc](CONTRACT-agent-cc.md), [autonomy](CONTRACT-autonomy.md) | Зафиксированные контракты подсистем |
+| [UI-SCREENS](UI-SCREENS.md) | Каталог старых экранов |
 
-Open-core **не импортирует** эти файлы в рантайме (кроме `MSB_USE_CLOSED_CORE=1` → `index.closed.js`).
+Переносится поведение с адаптацией к модульному open-core. Этот каталог не является
+runtime-реализацией поддерживаемого выпуска; `vendor/index.closed.js` не экспортируется
+в его runtime. Исторический closed-core flag в исходном entrypoint не используется
+как поддерживаемый откат: [release rollback](../../../tools/release/README.md) восстанавливает код.
 
-Как препарировать дальше:
-
-```bash
-# поиск модуля по лог-префиксу
-rg '\[iia/agent-cc\]' deobfuscated.js
-
-# сравнение поведения
-MSB_USE_CLOSED_CORE=1 node ../index.js   # эталон
-node ../index.js                         # open-core
-```
+Для поиска эталона используй названия UI, callback IDs и лог-префиксы в
+`deobfuscated.js`. Полнота старого поведения проверяется по сценариям; наличие
+файла vendor или отдельного зелёного теста само по себе её не доказывает.

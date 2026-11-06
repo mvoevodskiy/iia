@@ -1,157 +1,62 @@
-# Эталон поведения нового open-core
+# Эталонные сценарии open-core
 
-Это отдельный regression-набор для восстановления четырёх прежних сценариев.
-Он проверяет требуемое поведение, а не правильность текущих заглушек.
-На исходной версии часть проверок **намеренно красная**: падения фиксируют
-реальные разрывы и должны исчезнуть после исправления production-кода.
-Не заменять ожидания на текущие ответы, не скрывать их `skip`/`todo`.
+[← Карта кода](../../../../docs/CODEMAP.md) · [Telegram](../../src/telegram/README.md) ·
+[Overlay](../../../../overlay/bot/ext/README.md) · [Release checks](../../../../tools/release/README.md)
 
-## Основа
+Набор проверяет требуемое поведение настоящих handlers/runner/overlay с fake
+Telegram, Deepgram и CLI. Ожидания не подгоняются под заглушки и не скрываются
+`skip`/`todo`. Ошибки прежнего адаптера — обход owner-check, потеря сессии при
+ошибке и автоматический replay — не считаются эталоном.
 
-- Новое ядро: `0bc2c9493063043bca866ca8ead6ee2aec6f3457`.
-- Старый master: `00f081f2220d0e6d3a186e8e1bb447b57acd6ebf`.
-- Старый `.iia/bot/index.js` совпадает с `.msb/bot/vendor/index.closed.js`:
-  Git blob `a3285b1062653226c4c4665d4efdb79803a47220`.
-- Читаемый эталон `.msb/bot/vendor/deobfuscated.js`:
-  blob `73aa9e7e850bad7ac1ea8a8091d086ecbfd47a11`.
+## Сценарий → реализация → тест
 
-Эталонные участки: voice 119871–119990, STT 102108–102247,
-status/typing 105675 / 106170 / 106834 / 109948–110061,
-доставка ответа 106557–106644, footer 3362–3384,
-stop 118208–118263. Переключение провайдеров — старый overlay.
-Ошибки прежнего адаптера (обход owner-check, сброс сессии при ошибке,
-автоматический replay) не считаются эталоном: их устранение уже запрошено владельцем.
+| Сценарий | Маршрут | Проверка |
+|---|---|---|
+| Голос и прежний preview/reply | [Telegram voice](../../src/telegram/README.md#голос) → [STT](../../src/media/README.md) → общий ход | [voice-progress](voice-progress.test.mjs), [voice-lifecycle](../voice-lifecycle.test.mjs), [stt](../stt.test.mjs) |
+| Typing/status, final edit/chunks/footer | [Жизненный цикл](../../src/telegram/README.md#жизненный-цикл-хода) → progress/response | [voice-progress](voice-progress.test.mjs), [response-delivery](../response-delivery.test.mjs), [presentation-retry](../presentation-retry.test.mjs) |
+| `/stop` во время долгого хода | `bot.start` / polling → controller → runner abort → cleanup/unlock | [stop-polling](stop-polling.test.mjs), [turn-lifecycle](../turn-lifecycle.test.mjs), [claude-abort](../claude-abort.test.mjs) |
+| Claude↔Codex, owner, failed login, error/session | [Интеграция](../../../../overlay/bot/ext/README.md#интеграция-telegram) → shim/adapter | [provider-switch](../../../../overlay/bot/ext/tests/reference/provider-switch.test.mjs), [codex-session](../../../../overlay/bot/ext/tests/codex-session.test.mjs) |
+| Настройки → Движки → Codex | core renderer/router → provider view → existing callback | [engine-menu](../../../../overlay/bot/ext/tests/reference/engine-menu.test.mjs) |
+| Context, MAX, forms и shared profile | [Agent](../../src/agent/README.md), [Telegram](../../src/telegram/README.md), [Shared](../../shared/README.md) | [codex-context](../codex-context.test.mjs), [menu-handlers](../menu-handlers.test.mjs), [runtime-profile](../runtime-profile.test.mjs) |
 
-## Запуск из корня репозитория
+## Основа эталона
 
-Установить зависимости по lock-файлу `.msb/bot`; `overlay/bot` должен видеть
-совместимые зависимости. Тесты не устанавливают их и не запускают install/bootstrap.
+Исходный open-core: `0bc2c9493063043bca866ca8ead6ee2aec6f3457`.
+Старый master: `00f081f2220d0e6d3a186e8e1bb447b57acd6ebf`.
+Bundle `.iia/bot/index.js` совпал с vendor blob `a3285b1062653226c4c4665d4efdb79803a47220`;
+читаемый [deobfuscated.js](../../vendor/deobfuscated.js) — blob `73aa9e7e850bad7ac1ea8a8091d086ecbfd47a11`.
+
+Участки эталона: voice 119871–119990; STT 102108–102247; status/typing
+105675 / 106170 / 106834 / 109948–110061; доставка 106557–106644; footer
+3362–3384; stop 118208–118263. Переключение CLI — прежний overlay.
+Строка Codex в «Движках» — отдельно запрошенное расширение прежнего экрана.
+
+## Запуск и результаты
+
+Из корня source checkout с установленными совместимыми зависимостями:
 
 ```sh
 node --test .msb/bot/tests/reference/*.test.mjs overlay/bot/ext/tests/reference/*.test.mjs
 ```
 
-Код возврата 1 означает нарушение хотя бы одного ожидаемого сценария.
-Обычные `npm test` ядра и `npm run test:ext` обвязки используют верхний уровень
-`tests/*.test.mjs` и **не включают** этот вложенный набор. Зелёный baseline
-не является зелёной приёмкой reference-сценариев. Результат первого прогона
-фиксируется отдельно в `baseline.json`.
+Обычные `npm test` ядра и `test:ext` не включают вложенный reference-набор.
+В [release pipeline](../../../../tools/release/README.md) core, overlay и reference
+запускаются на snapshot того же commit, что экспортированный runtime и инструменты.
+Текущий результат выпуска — его `checks/results/verification.json`, привязанный к manifest.
 
-## Граница проверки
+[baseline.json](baseline.json), [stop-checkpoint](stop-checkpoint.json),
+[progress-checkpoint](progress-checkpoint.json), [voice-checkpoint](voice-checkpoint.json)
+и [alignment-checkpoint](alignment-checkpoint.json) оставлены как история этапов;
+старые PASS/RED и числа тестов не являются текущим статусом ветки.
 
-Тестируются настоящие обработчики/обвязка нового ядра с подставленными
-Telegram API, Deepgram и CLI. `/stop` проверяется через настоящий `bot.start()`
-и последовательные `getUpdates`, не ручными конкурентными `handleUpdate`.
-Положительные проверки инфраструктуры должны завершаться до проверки эталона:
-сбой импорта, timeout harness или отсутствие запуска CLI не считаются ожидаемым RED.
+## Границы проверки
 
-Профили, ключи и identity синтетические; HOME временный. Реальные Telegram,
-Deepgram, Claude/Codex и JAR1 не используются. Это не проверка валидности
-подписки, микрофона, качества распознавания или остановки настоящих процессов
-на Linux. До последующей выкладки потребуются отдельные стендовые проверки.
+`/stop` проходит через настоящее последовательное polling Grammy. Synthetic HOME,
+ключи и identity не используют реальные аккаунты. Сбой импорта, timeout harness
+или отсутствие запуска CLI — ошибка инфраструктуры, а не допустимый RED поведения.
 
-Этот этап меняет только тесты и их документацию. Старые кодовые коммиты
-не перенесены; production-исходники нового ядра остаются без изменений.
-
-## Этап долгого хода и /stop
-
-После отделения исполнения от polling эталон stop проходит; текущий reference
-результат — 2 PASS / 5 RED. Первоначальный baseline.json оставлен историческим.
-Подробности нового прогона — stop-checkpoint.json. Assertions эталона не ослаблены:
-фикстуры теперь дожидаются фоновой доставки и полного shutdown, а также отвечают
-на финальное подтверждение offset обычного Grammy polling.
-
-Дополнительные проверки: turn-lifecycle.test.mjs, state-concurrency.test.mjs,
-claude-abort.test.mjs. Штатный core теперь 30/30, overlay 55/55 на Mac.
-Процессный тест запускает только собственные временные Node fixtures без сети;
-проверяет inherited process group, в том числе потомка после выхода лидера.
-Отделившиеся от группы или закрывшие inherited pipes потомки отдельно не
-отслеживаются: supervisor не добавлен. Реальные модели и Linux/JAR1 не проверялись.
-
-## Этап прежней индикации и итогового ответа
-
-Эталон progress теперь проходит вместе со stop: reference 3 PASS / 4 RED.
-Восстановлены typing каждые 4с, исходные thinking/tool тексты, замедление
-обновлений долгого хода, замена status коротким ответом и удаление status перед
-длинным. Отдельной галочки нет. Поздний edit дожидается завершения перед stop/final;
-таймеры и запрос typing отменяются при завершении/ошибке/abort.
-
-Core 43/43, overlay 55/55 на Mac. Новые progress/response тесты проверяют
-cleanup, тихий CLI, long-turn cadence, Unicode/HTML, topic и fallback доставки.
-Интервалы тестируются с управляемым временем, а эталон — на задержанном CLI.
-Формат footer принимает реальные elapsed/cost/context; в этом этапе runner
-передаёт время и известную CLI cost. Native контекст Codex пока не подключён
-к новому runner: неизвестный процент не отображается. Отдельный старый
-flood-adaptive контроллер 429 не переносился, используется текущий autoRetry.
-Сервер и реальные аккаунты не использовались. См. progress-checkpoint.json.
-
-## Этап голосовых / Deepgram
-
-Backend сохранён отдельно в fedf68f: прежние параметры Deepgram, совместимый
-приоритет process → per-bot → shared STT env, включая пустые overrides,
-STT_COMMAND, таймауты/отмена и очистка временного аудио. Значения ключей
-не переносятся между файлами и не выводятся.
-
-Telegram voice теперь идёт напрямую в общий ход выбранного провайдера:
-«🎙 Расшифровываю...» → прежняя цитата до 300 позиций + волна → полный текст
-агенту с прежним reply-контекстом. При Unicode-границе preview не обрывает emoji.
-Подготовка использует старый цикл wQ, затем основной thinking-цикл. Pending
-текстовые формы не потребляют речь. При ошибке/отмене удаляются только
-служебные сообщения; исходное голосовое остаётся. Восстановлены onboarding
-и whisper:skip; копия onboarding взята из vendor (signup credit дополнительно
-сверен с https://deepgram.com/pricing, реальные сервисы не вызывались).
-
-Результат: core 70/70, overlay 55/55; reference 4 PASS / 3 RED — голос, stop,
-индикация и базовое переключение проходят. Оставшиеся RED: invalid login,
-overlay owner-check и Codex error/replay. Детали — voice-checkpoint.json.
-
-Проверки полностью локальные: fake Telegram/Deepgram/CLI, изолированные HOME,
-синтетические ключи; STT_COMMAND тестируется временными локальными скриптами.
-Валидность реального ключа/баланса Deepgram, качество распознавания настоящей
-записи и работа живого бота этим прогоном не подтверждены. JAR1 не изменён.
-
-Telegram delivery follow-up (JAR1 acceptance): presentation calls bypass the
-unbounded autoRetry queue, cancel on completion and respect retry_after before
-animating again. A rejected final edit/cleanup falls back to sending the answer;
-normal message sends retain retries. The legacy texts and layout are unchanged.
-`tests/presentation-retry.test.mjs` exercises real Grammy/autoRetry with fake HTTP
-and a deterministic clock: cooldown, a late response after abort, final fallback.
-All three assertions fail with MSB_PRESENTATION_LEGACY_RETRY=1 and pass normally.
-Core: 70 existing tests plus 3 new delivery tests PASS on macOS. This follow-up
-does not resolve the three standalone provider defects documented above; the
-JAR1 compatibility package preserves the already deployed provider fixes.
-
-## Codex in Engines
-
-The legacy engine view (`vendor/deobfuscated.js`, WBA) provides the reference
-for navigation and separate engine actions. It did not contain a native Codex
-row. The owner explicitly requested this addition while keeping old behavior.
-
-`overlay/bot/ext/engine-menu.mjs` supplies a read-only provider view from the
-existing registry/store through an optional Bot-class bridge. Core screens
-render its choices; all engine-router return paths use that view. Without the
-extension, core does not expose an unhandled Codex callback. The displayed row
-uses the existing `ext:conn:set:codex` flow, not a second engine implementation.
-
-This branch now includes the previously reviewed owner/login-status guards
-required by that callback. An explicit, validated selection can leave `oc` for
-`cc`; startup synchronization alone cannot. Core and auth-gate transactions
-share their state queue. Native auth, Codex sessions/model/effort and retained
-OC fields are covered by the reference fixtures; no OS helper is invoked.
-
-Validation: 3 provider-view unit tests and 7 real core-router/overlay scenarios
-pass; existing core 73 and overlay 55 checks pass. The standalone branch still
-has the previously recorded stream-cut/session failure reference; it is outside
-this menu change. JAR1's compatibility package retains its existing fix and
-passes all 167 checks, including every old and new reference scenario.
-
-Alignment checkpoint: native context, MAX/top-level TOML and session-error
-behavior now live in the canonical source. The previously RED stream-cut test
-passes; all 150 checks of this checkpoint pass. See alignment-checkpoint.json.
-The JAR1 release has not been changed by this local checkpoint.
-
-Second alignment checkpoint: the canonical source now includes the remaining
-JAR1 form/menu/state-writer fixes. All 171 checks pass. Optional native OS-helper
-views/routes are preserved in src/engines/{screen,telegram}.mjs, activated only
-by the native runtime profile; JAR1 keeps its existing engine controls. Runtime
-profile integration, packaging and live deployment remain pending.
+Тесты не подтверждают баланс/валидность живого Deepgram, качество распознавания,
+наличие подписки Claude/Codex и полный паритет старого ядра. Linux-проверка артефакта,
+startup после выкладки и реальный Telegram-сценарий — отдельные этапы.
+Факт финальной выкладки и живой приёмки фиксируется отдельно для выпущенного
+source SHA; этот README сам по себе не подтверждает состояние JAR1.

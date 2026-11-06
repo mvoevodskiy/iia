@@ -1,4 +1,5 @@
 // One source for core, overlay and release entrypoints. No native auth paths here.
+// Навигация: [Runtime profile](./README.md) → [entry preload](./preload.mjs).
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');

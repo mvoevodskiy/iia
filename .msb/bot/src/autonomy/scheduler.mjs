@@ -9,6 +9,7 @@ const TICK_MS = 60_000;
 
 /**
  * Упрощённый планировщик фоновых задач (аналог [msb/scheduler]).
+ * Навигация: [Автономка](./README.md) → [общий ход](../agent/turn.mjs).
  */
 export function startScheduler({ api, adminId, log = console.error } = {}) {
   let stopped = false;

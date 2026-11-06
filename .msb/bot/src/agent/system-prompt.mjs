@@ -7,6 +7,7 @@ const FILES = ['SOUL.md', 'CLAUDE.md', 'USER.md', 'MEMORY.md', 'TELEGRAM-TOOLS.m
 
 /**
  * Собирает append-system-prompt из workspace (как context-loader закрытого ядра, упрощённо).
+ * Навигация: [Исполнение](./README.md) → [profile label](../../shared/README.md).
  */
 export async function buildSystemPrompt({ workspace = workspaceDir(), extra = '' } = {}) {
   const chunks = [];

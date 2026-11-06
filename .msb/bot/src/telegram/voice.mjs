@@ -1,3 +1,7 @@
+/**
+ * Telegram download, reply-context и прежний preview голоса.
+ * Навигация: [Голос](./README.md#голос) → [STT backend](../media/README.md).
+ */
 import { resolveSttConfig, transcribeVoice, audioTimeoutMs } from '../media/stt.mjs';
 import { buildReplyContext } from './reply-context.mjs';
 import { escapeHtml } from './edit.mjs';

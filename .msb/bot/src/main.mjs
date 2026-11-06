@@ -1,6 +1,7 @@
 /**
  * MSB open-core — точка входа открытого ядра.
  * Совместима с systemd ExecStart=node …/bot/index.js и overlay run.mjs.
+ * Навигация: [Карта](../../../docs/CODEMAP.md) → [Telegram](./telegram/README.md).
  */
 import { assertRuntimeConfig, readConfig } from './config.mjs';
 import { startHeartbeat } from './heartbeat.mjs';

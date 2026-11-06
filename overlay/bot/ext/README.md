@@ -1,113 +1,101 @@
-# MSB ext — Cursor / Codex / Qwen в том же боте
+# CLI-провайдеры и обвязка
 
-Расширение поверх закрытого бандла `bot/index.js` **без** развёртывания OpenClaw.
+[← Карта кода](../../../docs/CODEMAP.md) ·
+[Установка обвязки](../../README.md) ·
+[Telegram ←](../../../.msb/bot/src/telegram/README.md) ·
+[Исполнение агента ←](../../../.msb/bot/src/agent/README.md)
 
-## Идея (экологичность к обновлениям)
+Обвязка добавляет Codex/Cursor/Qwen, выбор провайдера, native auth, модели и
+локальный constructor API. Ядро может работать без неё. Вход — [`run.mjs`](../run.mjs),
+который устанавливает PATH-shim и вызывает [`prepare`](integration/startup.mjs) до импорта ядра.
+[`install.mjs`](install.mjs) сохраняет прежние публичные экспорты `prepare` и `installUpdateHook`.
 
-| Слой | Что | Переживает puller? |
-|------|-----|-------------------|
-| `bot/index.js` | штатный бандл создателя | заменяется обновлением |
-| `bot/run.mjs` | наша точка входа | да (не в манифесте) |
-| `bot/ext/**` | провайдеры, меню, shim | да |
-| `~/.msb/ext-tools/` | npm-пакеты Codex/Qwen | да |
-| drop-in `60-ext-entry.conf` | `ExecStart=…/run.mjs` | да (в /etc) |
+## Выбор и авторизация
 
-**Бандл не патчим.**
+| Задача | Модуль → функция / маршрут | Проверка |
+|---|---|---|
+| Найти доступные CLI-провайдеры | [`providers.mjs`](providers.mjs): `PROVIDERS`, `getProvider` | [menu](tests/menu.test.mjs), [store](tests/store.test.mjs) |
+| Показать Codex в «Движках» | [`engine-menu.mjs`](engine-menu.mjs): `buildEngineProviderView`, `registerEngineProviderView`; core `enginesScreen` | [core engine-menu](../../../.msb/bot/tests/engine-menu.test.mjs), [core + overlay](tests/reference/engine-menu.test.mjs) |
+| Переключить провайдера из кнопки | [`integration/callbacks.mjs`](integration/callbacks.mjs): `handleCallback`, `ext:conn:set:<id>` | [provider-switch](tests/reference/provider-switch.test.mjs), [engine-menu](tests/reference/engine-menu.test.mjs) |
+| Проверить вход Codex / начать device login | [`auth-wire.mjs`](auth-wire.mjs): `codexLoginStatus`, `startCodexDeviceLogin`; [`integration/native-login.mjs`](integration/native-login.mjs): `connectCodexNative` | [auth-wire](tests/auth-wire.test.mjs), [engine-menu](tests/reference/engine-menu.test.mjs) |
+| Убедиться, что CLI установлен | [`ensure-cli.mjs`](ensure-cli.mjs): `ensureProviderCli` | [ensure-cli](tests/ensure-cli.test.mjs) |
+| Сохранить ключ Cursor/Qwen и настроить CLI | [`env.mjs`](env.mjs): `saveProviderSecret`; [`auth-wire.mjs`](auth-wire.mjs): `wireProviderAuth`; [`integration/text-input.mjs`](integration/text-input.mjs): `handleAuthMessage` | [env](tests/env.test.mjs), [auth-wire](tests/auth-wire.test.mjs) |
 
-1. `run.mjs` ставит в `PATH` shim `ext/shim/bin/claude` + `~/.msb/ext-tools/bin` + `~/.local/bin`.
-2. До `import('./index.js')` патчит **тот же** ESM-класс `Bot` из grammy — перехват «🔌 Подключение».
-3. Если активен не Claude, shim отвечает бандлу Claude stream-json, внутри зовёт `agent` / `codex` / `qwen` с их инструментами (`--force` / `danger-full-access` / `--yolo`).
+Порядок Codex selection: готовность CLI → native login status → подготовка
+runtime → `setActive` → `syncExtAuthGate`. При отказе login-status активный профиль
+сохраняется; кнопка входа использует `ext:auth:codex`. Открытие «Движков» только читает
+store. Вход Codex хранится в native auth, секрет не запрашивается сообщением в Telegram.
 
-На движке OpenClaw (`state.engine === "oc"`) штатное «Подключение» не перехватывается.
+Owner-check выполняется в [`installUpdateHook`](integration/update-hook.mjs) до действий overlay;
+необработанное событие передаётся ядру. При разделении сохранять эту границу,
+порядок callback-ветвей и штатный Claude token flow.
 
-## Меню
+## Модель и сессия
 
-`/settings` → **🔌 Подключения** — совмещённый экран (не вместо штатного, а с ним):
+| Данные / действие | Реализация | Проверка |
+|---|---|---|
+| Active provider, native sessions, models, efforts | [`store.mjs`](store.mjs): `loadStore`, `setActive`, `setSession`, `setSelectedModel`, `setSelectedEffort` | [store](tests/store.test.mjs), [provider-switch](tests/reference/provider-switch.test.mjs) |
+| Каталог и отображаемая модель | [`models-catalog.mjs`](models-catalog.mjs): `listModelsForProvider`, `resolveDisplayedModel`; [`menu.mjs`](menu.mjs): `buildModelMenu`, `buildAgentMenu` | [menu](tests/menu.test.mjs), [codex-native](tests/codex-native.test.mjs) |
+| Применить модель/effort в store и native config | [`apply-model.mjs`](apply-model.mjs): `applyProviderModel`, `applyProviderEffort` | [apply-model](tests/apply-model.test.mjs) |
+| Сохранить UI-режим прав | [`integration/actions.mjs`](integration/actions.mjs): `writeBotPermissionMode`; совместимый реэкспорт из [`menu.mjs`](menu.mjs) | [menu-handlers](../../../.msb/bot/tests/menu-handlers.test.mjs) проверяет сохранение native Codex session |
+| Согласовать provider с auth gate ядра | [`setup-bypass.mjs`](setup-bypass.mjs): `syncExtAuthGate`; [`state-update.mjs`](state-update.mjs): `updateBotState` | [setup-bypass](tests/setup-bypass.test.mjs), [engine-menu](tests/reference/engine-menu.test.mjs) |
 
-**Штатные (бандл):** Claude · токен, OpenRouter, OpenClaw, движок Claude — уходят в `index.js`.
-**Обвязка (CLI):** Cursor / Codex / Qwen (+ Claude CLI как активный канал shim).
+Основной provider store — `<root>/bots/<id>/ext-providers.json`;
+`<root>` выбирает [shared profile](../../../.msb/bot/shared/README.md). Core-профиль
+`state.json` и native Codex config имеют отдельные роли. Повторный выбор Codex
+проверяется на сохранение session/model/effort. Смена провайдера может убрать
+чужой `ccSessionId`; правила определяет auth gate, а не renderer меню.
 
-1. Cursor/Qwen — «🔑 Ключ» → ключ сообщением в `.env` бота.
-2. Codex — «🔑 Войти» → ChatGPT device login; секрет в Telegram не просим (`~/.codex/auth.json`).
-3. Неуспешный login Codex **не** переключает канал.
-4. Выбор OpenRouter/OpenClaw сбрасывает активный CLI-канал обвязки, чтобы shim не перехватывал ход.
+## Исполнение CLI
 
-Активный: `~/.msb/bots/<id>/ext-providers.json`.
+[`shim/run-turn.mjs`](shim/run-turn.mjs) — граница с ядром: читает Claude argv/stdin,
+выбирает provider и возвращает совместимые stream-json события.
 
-«Назад» из «🔌 Подключение» ведёт в `menu:settings` (настройки), не в «Агент → Модель».
+| Подмодуль | Файл → функция | Проверка |
+|---|---|---|
+| Claude passthrough / alternate dispatch | [`shim/run-turn.mjs`](shim/run-turn.mjs): `runAlternate` и ветка Claude | [provider-switch](tests/reference/provider-switch.test.mjs) |
+| Codex exec, resume, stream parsing | [`adapters/codex.mjs`](adapters/codex.mjs): `runCodexTurn`, `buildCodexExecArgs`, `parseCodexStdout` | [provider-switch](tests/reference/provider-switch.test.mjs); ограничения ниже |
+| Native Codex config и HTTP transport | [`codex-native.mjs`](codex-native.mjs), [`codex-transport.mjs`](codex-transport.mjs): `ensureCodexStableTransport` | [codex-native](tests/codex-native.test.mjs), [codex-transport](tests/codex-transport.test.mjs) |
+| Cursor / Qwen | [`adapters/cursor.mjs`](adapters/cursor.mjs), [`adapters/qwen.mjs`](adapters/qwen.mjs); общие [`run-cli`](adapters/run-cli.mjs), [`stream`](adapters/stream.mjs), [`parse-args`](adapters/parse-args.mjs) | [cursor-adapter](tests/cursor-adapter.test.mjs), [parse-args](tests/parse-args.test.mjs); отдельного Qwen adapter test нет |
 
-При активном Cursor/Codex/Qwen экраны **🧠 Агент**, **🧠 Модель**, **💭 Глубина**, **🔐 Режим** показывают текущего провайдера и его модель — не Claude Opus/Sonnet. Выбор модели/глубины пишется в `ext-providers.json` (`models` / `efforts`); для Codex ещё в `~/.codex/config.toml`.
+При ошибке Codex текущая сессия сохраняется; запрос с инструментами автоматически
+не повторяется в новом thread. Это проверяют [codex-session](tests/codex-session.test.mjs)
+и [provider-switch](tests/reference/provider-switch.test.mjs).
 
-Штатный Setup Mode смотрит только на Claude OAuth / Anthropic key. Поэтому при активном Cursor/Codex/Qwen с валидной auth расширение пишет в `state.json` `authMode=subscription` и маркер `extAuthBypass` — иначе сообщения блокируются текстом «AI ещё не подключён» и до shim не доходят. При возврате на Claude маркер и чужой `ext:` session id снимаются.
+Codex — CLI-провайдер внутри канала `cc`, а не действие OS helper.
+OpenClaw/service actions находятся в [core engines](../../../.msb/bot/src/engines/README.md).
+Эталон, состав покрытия и результаты этапов описаны в
+[reference README](../../../.msb/bot/tests/reference/README.md).
 
-## Автоустановка CLI
+## Локальный SSH и управление ботами
 
-| Провайдер | Как ставится |
-|-----------|----------------|
-| Cursor | `curl https://cursor.com/install \| bash` → обычно `~/.local/bin/agent` |
-| Codex | `npm i -g --prefix ~/.msb/ext-tools @openai/codex@0.166.0` (версия закреплена) |
-| Qwen | `npm i -g --prefix ~/.msb/ext-tools @qwen-code/qwen-code` |
+[`local-ssh.mjs`](local-ssh.mjs): `installLocalSshFetchPatch` направляет подходящие
+constructor-запросы в `handleLocalConstructorRequest`; здесь же находятся
+проверка локального адреса, SSH keys/firewall и вызовы управления ботами.
+Статус показывает [`showLocalAwareSshHome`](integration/ssh-screen.mjs), форму строит
+[`menu.mjs`](menu.mjs), а ввод принимает [`handleLocalSshIpMessage`](integration/text-input.mjs).
+Проверка — [local-ssh.test.mjs](tests/local-ssh.test.mjs).
 
-Срабатывает при входе / выборе провайдера, если бинаря нет. Нужны сеть и `npm`/`curl` у пользователя `client`.
+## Интеграция Telegram
 
-## Авторизация
+| Подмодуль | Ответственность |
+|---|---|
+| [startup](integration/startup.mjs) | `prepare`: одна подготовка PATH, локального SSH и auth gate перед установкой hook |
+| [update-hook](integration/update-hook.mjs) | Startup owner/closed-core flags; owner guard до callback, отмены форм и текстового ввода; затем core passthrough |
+| [callbacks](integration/callbacks.mjs) | Прежний порядок callback-ветвей; `true` поглощает событие, `false` передаёт его ядру |
+| [native-login](integration/native-login.mjs) | `ensureAndReport`, `prepareCodexRuntime`, `connectCodexNative` — прежняя последовательность CLI/native auth |
+| [text-input](integration/text-input.mjs) | Ввод локального IP и provider secret; используются общие pending-хранилища из `auth.mjs` / `local-ssh.mjs` |
+| [ssh-screen](integration/ssh-screen.mjs) | SSH status presentation; backend не перенесён из `local-ssh.mjs` |
+| [actions](integration/actions.mjs) | Запись сохранённого UI-режима |
+| [shared](integration/shared.mjs) | `editOrReply`, read-only `readEngine`, CC-only guard и log marker |
 
-| Провайдер | Что делает бот |
-|-----------|----------------|
-| Claude | штатный `claude setup-token` → `CLAUDE_CODE_OAUTH_TOKEN` |
-| Cursor | `CURSOR_API_KEY` в .env (официальный способ для headless) |
-| Codex | нативный `~/.codex/auth.json` (ChatGPT login / device code). Ключ в .env не обязателен |
-| Qwen | ключ в .env + `~/.qwen/settings.json` (`selectedType: openai`) и `~/.qwen/.env`; `sk-sp-` → Token Plan URL |
+При дальнейшем разделении сохранять единственность pending-хранилищ, owner boundary,
+захват startup flags и порядок callback-ветвей. Исходники и установленный runtime различаются путями:
+[карта source/release/runtime](../../../docs/CODEMAP.md#исходники-сборка-и-runtime).
 
-## Codex: ход и сессии
+## Источник и выпуск
 
-- Модель и `model_reasoning_effort` берутся из `~/.codex/config.toml`; Claude-алиасы бандла (`claude-opus-…`) в OpenAI **не** передаются.
-- Права: `--sandbox danger-full-access`, `-c approval_policy="never"`.
-- Транспорт: HTTP-only provider `msb_http` (`supports_websockets = false`) — обход обрывов Responses WebSocket (`Reconnecting… 5/5`). При обрыве — один автоповтор новым тредом.
-- Успех хода: `turn.completed` + непустой текст + валидный native `thread_id`. Служебный `norestart` не блокирует следующий ход.
-- Init/result отдают один подтверждённый session id; сбой `setSession` не глотает уже полученный ответ.
-- В поток бота уходят фактическая модель и native usage; сырой stderr CLI в журнал процесса не дублируется.
-
-## Инструменты
-
-Инструменты выполняет **сам CLI** провайдера (запись файлов, shell и т.д.), не эмуляция tool_use Claude в Telegram. Флаги: Cursor `--force --trust`, Codex `danger-full-access` + `approval_policy=never`, Qwen `--yolo`.
-
-## Установка на сервер
-
-```bash
-chmod +x ~/.msb/bot/ext/shim/bin/claude
-sudo mkdir -p /etc/systemd/system/msb-bot@.service.d
-sudo cp ~/.msb/bot/systemd/60-ext-entry.conf /etc/systemd/system/msb-bot@.service.d/
-sudo systemctl daemon-reload
-sudo bot-ctl.sh restart all   # код общий — подхватывают все инстансы
-```
-
-Drop-in шаблонный (`msb-bot@.service.d`): новый бот из «Мои боты» сразу стартует через `run.mjs`.
-
-Проверка: в боте «🔌 Подключение» → Cursor/Qwen (ключ) или Codex («Войти») → дождаться успеха → написать сообщение агенту.
-
-## Обновления
-
-Канал обвязки публикуется сервисом `overlay/msb-updates` (отдельно от ядра). На боксе после установки:
-
-```
-MSB_UPDATES_URL=...
-MSB_UPDATES_TOKEN=...   # индивидуальный install_box
-node ~/.msb/bot/ext/update/cli.mjs check
-node ~/.msb/bot/ext/update/cli.mjs apply
-```
-
-Установщик (TG + веб) ставит обвязку по SSH: владелец в настройках своего бота добавляет ключ и IP хаба — скрипты на сервере не нужны.
-
-## Локальный SSH IP (LAN / без проброса :22)
-
-Конструктор для «Мои боты» и «SSH доступ» ходит по SSH на **внешний** `vps_ip` клиента. Если бокс во внутренней сети и порт 22 снаружи не открыт — эти экраны падают (`VPS unreachable`).
-
-Обход: `/settings` → «Системные» → «SSH доступ» → **🖧 Локальный SSH IP** (переменная `MSB_LOCAL_SSH_HOST`, например `192.168.1.10` или `127.0.0.1`). Тогда запросы `/api/ssh/*` и «Мои боты» (список / добавить / удалить) выполняются на этой машине через `sudo bot-ctl.sh`, без SSH с хаба и без внешнего IP. Нужны вход через `run.mjs` (drop-in `systemd/60-ext-entry.conf`) и актуальный `/usr/local/bin/bot-ctl.sh` с действиями `add` / `remove`.
-
-## Ограничения
-
-- В Telegram нет покадрового tool-stream как у Claude; виден итоговый текст хода.
-- Сессии: `ext:<id>:<native>`, не смешиваются с Claude session id.
-- `JARVIS_CC_ONLY=1` — только штатное Claude-меню.
-- Бандл в system prompt всегда пишет «Claude Max» — shim добавляет Runtime override с активным провайдером, иначе агент повторяет шаблон.
+Обвязка входит в тот же [commit и release](../../../tools/release/README.md), что ядро
+и shared profile. Отдельный старый закрытый bundle не является runtime зависимостью
+этого выпуска. Сервис [msb-updates](../../msb-updates/README.md) остаётся отдельным
+компонентом; он не заменяет проверку/план текущего JAR1 release.

@@ -1,0 +1,54 @@
+# Исполнение агента
+
+[← Карта кода](../../../../docs/CODEMAP.md) ·
+[Telegram ←](../telegram/README.md) ·
+[CLI-провайдеры →](../../../../overlay/bot/ext/README.md)
+
+Модуль получает prompt и signal отмены, запускает CLI и возвращает результат.
+Telegram UI, progress и отправка ответа остаются в соседнем модуле. Общий вход —
+[`runAgentTurn`](turn.mjs); его вызывают пользовательский ход и автономка.
+
+## Общий ход
+
+| Задача | Файл → функция | Проверка |
+|---|---|---|
+| Допуск по auth, core engine, модель/effort/права | [`turn.mjs`](turn.mjs): `runAgentTurn`; [`state.mjs`](../state.mjs): `hasClaudeAuth`, `resolveModel`, `resolveEffort`, `resolvePermMode` | [paths-state](../../tests/paths-state.test.mjs), [turn-lifecycle](../../tests/turn-lifecycle.test.mjs) |
+| Сформировать системный prompt из workspace | [`system-prompt.mjs`](system-prompt.mjs): `buildSystemPrompt` | [profile-ui](../../tests/profile-ui.test.mjs) проверяет runtime label; полнота содержимого workspace отдельно не проверяется |
+| Передать stream-события в progress и вернуть итог | [`runAgentTurn`](turn.mjs) → [`runClaudeTurn`](claude.mjs) | [voice-progress](../../tests/reference/voice-progress.test.mjs), [turn-lifecycle](../../tests/turn-lifecycle.test.mjs) |
+| Сохранить session ID после успешного хода, который не был отменён | [`runAgentTurn`](turn.mjs): guard по signal, session ID, `sessionEpoch`, `extAuthBypass`; [`updateState`](../state.mjs) | [turn-lifecycle](../../tests/turn-lifecycle.test.mjs), [state-concurrency](../../tests/state-concurrency.test.mjs) |
+
+## Представление агента и контекст
+
+[`agentDisplay`](display.mjs) читает выбранного провайдера и model/effort.
+[`readSessionContext` / `formatContextUsage`](context.mjs) берут native context
+активной сессии; неизвестный процент не выдумывается. `runAgentTurn` передаёт
+контекст в Telegram footer и защищает сохранение от позднего результата после reset.
+Проверки: [codex-context](../../tests/codex-context.test.mjs),
+[turn-context](../../tests/turn-context.test.mjs), [provider-state-concurrency](../../tests/provider-state-concurrency.test.mjs).
+
+Формат результата — `{ ok, text, result }` либо ошибка допуска/отмены.
+Доставка результата: [Telegram → Жизненный цикл хода](../telegram/README.md#жизненный-цикл-хода).
+
+## CLI и выбор провайдера
+
+[`runClaudeTurn`](claude.mjs) запускает `claude` и читает Claude stream-json.
+Без overlay это штатный CLI. С overlay имя `claude` разрешается через PATH-shim:
+
+[`overlay/run.mjs`](../../../../overlay/bot/run.mjs) устанавливает PATH →
+[`shim/bin/claude`](../../../../overlay/bot/ext/shim/bin/claude) →
+[`shim/run-turn.mjs`](../../../../overlay/bot/ext/shim/run-turn.mjs) читает active provider →
+реальный Claude либо соответствующий adapter → совместимый stream-json для ядра.
+
+| Что искать | Реализация | Проверка |
+|---|---|---|
+| Аргументы Claude CLI и разбор stream | [`claude.mjs`](claude.mjs): `runClaudeTurn`, `parseStreamLine`; вспомогательные тестовые функции в [`claude-testables.mjs`](claude-testables.mjs) | [claude-argv](../../tests/claude-argv.test.mjs) проверяет построение аргументов/разбор |
+| Завершение дочернего процесса и его группы | [`runClaudeTurn`](claude.mjs) | [claude-abort](../../tests/claude-abort.test.mjs), [stop-polling](../../tests/reference/stop-polling.test.mjs) |
+| Provider dispatch, native session и passthrough Claude | [`runAlternate`](../../../../overlay/bot/ext/shim/run-turn.mjs), adapter | [provider-switch](../../../../overlay/bot/ext/tests/reference/provider-switch.test.mjs); [карта обвязки](../../../../overlay/bot/ext/README.md#исполнение-cli) |
+
+Codex не требует значения `state.engine = codex`: это выбор overlay внутри
+штатного CLI-канала `cc`. Отдельный `oc` обрабатывается как другой core engine;
+управление его сервисами описано в [OS-движках](../engines/README.md).
+
+При разделении runner сохранять signal отмены, границы process group,
+stream-контракт и guard записи сессии. Эталон поведения и пределы проверки —
+[reference README](../../tests/reference/README.md), [контракт Claude CLI](../../vendor/CONTRACT-agent-cc.md).

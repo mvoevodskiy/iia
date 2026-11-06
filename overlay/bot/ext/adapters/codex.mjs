@@ -1,3 +1,7 @@
+/**
+ * Codex exec/resume и разбор ответа; transport error не запускает повтор в новом thread.
+ * Навигация: [CLI-провайдеры](../README.md#исполнение-cli) → [native config](../codex-native.mjs).
+ */
 import os from 'node:os';
 import profile from '../../shared/profile.cjs';
 import { findBin, runCli } from './run-cli.mjs';

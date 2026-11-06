@@ -1,6 +1,7 @@
 /**
  * Запуск Claude Code CLI в режиме stream-json.
  * Контракт совместим с закрытым [msb/agent-cc] и overlay shim (PATH→claude).
+ * Навигация: [Исполнение](./README.md), [provider shim](../../../../overlay/bot/ext/shim/run-turn.mjs).
  */
 import { spawn } from 'node:child_process';
 import fs from 'node:fs/promises';

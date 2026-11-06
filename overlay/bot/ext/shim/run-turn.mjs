@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 import '../../shared/preload.mjs';
 /**
- * Точка входа shim `claude`: либо настоящий Claude Code, либо адаптер Cursor/Codex/Qwen
- * с эмуляцией stream-json для парсера бандла.
+ * Вход PATH-shim claude: штатный Claude либо adapter, возвращающий CLI stream-json ядру.
+ * Навигация: [Исполнение CLI](../README.md#исполнение-cli) → [Codex](../adapters/codex.mjs).
  */
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';

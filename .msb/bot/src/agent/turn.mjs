@@ -12,6 +12,7 @@ import { readSessionContext } from './context.mjs';
 
 /**
  * Один ход агента для чата или автономии.
+ * Навигация: [Исполнение](./README.md) → [runner](./claude.mjs), [context](./context.mjs).
  */
 export async function runAgentTurn({
   prompt,

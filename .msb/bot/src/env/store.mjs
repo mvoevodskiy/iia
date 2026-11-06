@@ -1,5 +1,6 @@
 /**
- * CRUD переменных окружения бота (~/.msb/bots/<id>/.env).
+ * CRUD per-bot env по выбранному runtime profile.
+ * Навигация: [Env](./README.md) → [shared profile](../../shared/README.md).
  */
 import fs from 'node:fs/promises';
 import path from 'node:path';

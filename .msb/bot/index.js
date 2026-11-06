@@ -1,11 +1,10 @@
 #!/usr/bin/env node
 import './shared/preload.mjs';
 /**
- * Точка входа MSB.
- *
- * По умолчанию — открытое ядро (src/main.mjs).
- * Откат к закрытому бандлу: MSB_USE_CLOSED_CORE=1
- *   (файл vendor/index.closed.js).
+ * Вход open-core после shared profile preload → src/main.mjs.
+ * Навигация: [Ядро](./OPEN-CORE.md), [main](./src/main.mjs).
+ * Исторический closed flag сохранён; vendor не входит в runtime поддерживаемого release.
+ * Откат выпуска восстанавливает предыдущий код из release backup.
  */
 import { pathToFileURL } from 'node:url';
 import path from 'node:path';
