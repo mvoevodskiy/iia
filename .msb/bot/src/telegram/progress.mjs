@@ -1,4 +1,5 @@
 /** Legacy OS thinking/typing presentation, independent of buffered CLI events. */
+const PREPARING = [['Думаю…', '⏳'], ['Думаю…', '⌛️'], ['Вникаю…', '👁️'], ['Мозгую…', '🧠'], ['Соображаю…', '🤔'], ['Анализирую…', '📡'], ['Формулирую…', '🧐']];
 const FRAMES = [['Думаю…', '⏳'], ['Думаю…', '⌛️'], ['Соображаю…', '🤔'], ['Мозгую…', '🧠'], ['Формулирую…', '🧐']];
 // Original tool labels (vendor B4A).
 const TOOL_LABELS = {
@@ -67,14 +68,14 @@ const TOOL_LABELS = {
   BackgroundWait: ["⏳", "Работаю в фоне"]
 };
 
-export function startTurnProgress(ctx, messageId, { signal, now = () => performance.now(), timers = globalThis } = {}) {
-  const start = now();
+export function startTurnProgress(ctx, messageId, { signal, preparing = false, now = () => performance.now(), timers = globalThis } = {}) {
+  let start = now();
   const thread = ctx.message?.message_thread_id;
   const topic = thread && thread !== 1 ? { message_thread_id: thread } : {};
   const typingAbort = new AbortController();
   let stopped = false, frame = 0, lastEdit = -Infinity, lastText = '', tool = null;
   let pending = null, editing = false, edits = Promise.resolve(), typingPending = Promise.resolve(), typingBusy = false;
-  let animationTimer, typingTimer;
+  let animationTimer, typingTimer, initialTimer;
   const enqueue = text => {
     if (stopped || text === lastText) return;
     lastText = text; pending = text;
@@ -91,7 +92,7 @@ export function startTurnProgress(ctx, messageId, { signal, now = () => performa
     if (stopped || signal?.aborted) return;
     const elapsed = Math.max(0, now() - start);
     const interval = elapsed >= 900000 ? 30000 : elapsed >= 300000 ? 10000 : 2000;
-    if (now() - lastEdit < interval - 250) return;
+    if ((!preparing || interval > 2000) && now() - lastEdit < interval - 250) return;
     const suffix = elapsed >= 300000 ? ` ${Math.floor(elapsed / 60000)} мин` : elapsed >= 2000 ? ` ${Math.floor(elapsed / 1000)}с` : '';
     let text;
     if (tool) {
@@ -101,9 +102,10 @@ export function startTurnProgress(ctx, messageId, { signal, now = () => performa
       const detail = formatToolInput(tool.name, input) || formatToolInput(name, input);
       text = `${label} ${emoji}${detail ? ` · ${detail}` : ''}${suffix}`;
     } else {
-      const index = elapsed >= 300000 ? Math.floor(elapsed / 10000) : frame;
-      const [label, emoji] = FRAMES[index % FRAMES.length];
-      text = `${label} ${emoji}${suffix}`;
+      const index = !preparing && elapsed >= 300000 ? Math.floor(elapsed / 10000) : frame;
+      const frames = preparing ? PREPARING : FRAMES;
+      const [label, emoji] = frames[index % frames.length];
+      text = `${label}${preparing ? '' : ' '}${emoji}${suffix}`;
     }
     lastEdit = now(); enqueue(text);
   };
@@ -117,19 +119,31 @@ export function startTurnProgress(ctx, messageId, { signal, now = () => performa
   const stop = () => {
     stopped = true; pending = null;
     timers.clearInterval(animationTimer); timers.clearInterval(typingTimer);
+    if (initialTimer !== undefined) timers.clearTimeout(initialTimer);
     typingAbort.abort(); signal?.removeEventListener('abort', stop);
     return Promise.allSettled([edits, typingPending]);
   };
   if (signal?.aborted) stop();
   else {
     signal?.addEventListener('abort', stop, { once: true });
-    typing(); tick();
+    typing();
+    if (preparing) { initialTimer = timers.setTimeout(() => { frame++; tick(); }, 500); initialTimer?.unref?.(); }
+    else tick();
     typingTimer = timers.setInterval(typing, 4000);
     animationTimer = timers.setInterval(() => { frame++; tick(); }, 2000);
     typingTimer?.unref?.(); animationTimer?.unref?.();
   }
   return {
     stop,
+    beginThinking() {
+      if (stopped) return;
+      if (initialTimer !== undefined) timers.clearTimeout(initialTimer);
+      timers.clearInterval(animationTimer); timers.clearInterval(typingTimer);
+      preparing = false; start = now(); frame = 0; lastEdit = -Infinity; tool = null; typing(); tick();
+      animationTimer = timers.setInterval(() => { frame++; tick(); }, 2000);
+      typingTimer = timers.setInterval(typing, 4000);
+      animationTimer?.unref?.(); typingTimer?.unref?.();
+    },
     onStatus(event) {
       if (stopped || event.kind === 'init') return;
       tool = event.kind === 'tool' ? event : null;

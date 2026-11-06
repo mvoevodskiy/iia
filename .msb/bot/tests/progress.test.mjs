@@ -6,7 +6,7 @@ const flush = () => new Promise(setImmediate);
 function fixture(edit = async () => {}) {
   let now = 0, id = 0;
   const tasks = new Map(), messages = [], actions = [];
-  const timers = { setInterval(fn, delay) { const key = ++id; tasks.set(key, { fn, delay, at: now + delay }); return key; }, clearInterval(key) { tasks.delete(key); } };
+  const timers = { setInterval(fn, delay) { const key = ++id; tasks.set(key, { fn, delay, at: now + delay }); return key; }, clearInterval(key) { tasks.delete(key); }, setTimeout(fn, delay) { const key=++id; tasks.set(key,{fn, delay:Infinity, at:now+delay}); return key; }, clearTimeout(key) { tasks.delete(key); } };
   const ctx = { chat: { id: 42 }, message: { message_thread_id: 7 }, api: {
     async editMessageText(chat, message, text) { messages.push({ at: now, chat, message, text }); await edit(text); },
     async sendChatAction(chat, action, topic) { actions.push({ at: now, chat, action, topic }); },
@@ -87,4 +87,19 @@ test('presentation API failures and already-aborted startup cannot leak timers o
   const g = fixture(), stopped = startTurnProgress(g.ctx, 100, { ...g.options, signal: ac.signal });
   await g.advance(10000); await stopped.stop();
   assert.equal(g.messages.length + g.actions.length + g.tasks.size, 0);
+});
+
+
+test('voice preparation retains the old seven-frame cadence and transitions to the model phase', async () => {
+  const f = fixture(), progress = startTurnProgress(f.ctx, 100, { ...f.options, preparing: true });
+  await f.advance(500);
+  assert.equal(f.messages.at(-1).text, 'Думаю…⌛️');
+  await f.advance(2000);
+  assert.equal(f.messages.at(-1).text, 'Вникаю…👁️ 2с');
+  await f.advance(2300);
+  progress.beginThinking(); await f.advance(2300);
+  assert.equal(f.messages.at(-1).text, 'Думаю… ⏳');
+  await f.advance(4300);
+  assert.equal(f.messages.at(-1).text, 'Думаю… ⌛️ 2с');
+  await progress.stop(); assert.equal(f.tasks.size, 0);
 });

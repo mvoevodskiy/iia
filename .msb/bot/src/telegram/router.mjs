@@ -74,6 +74,8 @@ export async function handleCallback({ bot, cfg, pending, ctx }) {
   const show = async (view) => editOrReply(bot.api, chatId, msgId, view.text, view.keyboard);
   const { state } = await loadState();
 
+  if (data === 'whisper:skip') return show({ text: 'Когда захочешь — отправь голосовое снова.\nИли подключи Deepgram в /settings → 🔑' });
+
   // —— menu ——
   if (data === 'menu:back' || data === 'menu:close') return show(hubScreen());
   if (data === 'menu:settings' || data === 'settings:back') return show(settingsScreen(state));

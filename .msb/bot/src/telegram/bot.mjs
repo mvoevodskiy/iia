@@ -2,6 +2,7 @@ import { Bot } from 'grammy';
 import { autoRetry } from '@grammyjs/auto-retry';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { recognizeVoice, voicePreview, STT_ONBOARDING } from './voice.mjs';
 import { startTurnProgress } from './progress.mjs';
 import { deliverTurnResponse } from './response.mjs';
 import { runAgentTurn } from '../agent/turn.mjs';
@@ -364,20 +365,37 @@ export function createBot(cfg) {
     });
   });
 
-  async function executeTurn(ctx, text, turn) {
+  async function executeTurn(ctx, text, turn, voice = false) {
     const chatId = ctx.chat.id;
     const signal = turn.controller.signal;
     let status;
     let progress;
+    let transcription;
+    let transcribed = false;
     const startedAt = performance.now();
     const stopped = async () => {
       if (status) await ctx.api.editMessageText(chatId, status.message_id, 'Моя остановочка ✋🏽⛔️');
     };
     try {
       const thread = ctx.message?.message_thread_id;
+      if (voice) {
+        transcription = await ctx.reply('🎙 Расшифровываю...', thread && thread !== 1 ? { message_thread_id: thread } : {});
+        if (signal.aborted) return;
+      }
       status = await ctx.reply('Думаю ⏳', thread && thread !== 1 ? { message_thread_id: thread } : {});
       if (signal.aborted) { await stopped(); return; }
-      progress = startTurnProgress(ctx, status.message_id, { signal });
+      progress = startTurnProgress(ctx, status.message_id, { signal, preparing: voice });
+      if (voice) {
+        const recognized = await recognizeVoice(ctx, cfg.botToken, signal);
+        signal.throwIfAborted();
+        const preview = voicePreview(recognized.transcript);
+        try { await ctx.api.editMessageText(chatId, transcription.message_id, preview.html, { parse_mode: 'HTML' }); }
+        catch { if (!signal.aborted) await ctx.api.editMessageText(chatId, transcription.message_id, preview.plain).catch(() => {}); }
+        signal.throwIfAborted();
+        transcribed = true;
+        text = recognized.prompt;
+        progress.beginThinking();
+      }
       const out = await runAgentTurn({ prompt: text, signal, onStatus: ev => progress.onStatus(ev) });
       await progress.stop();
       if (signal.aborted || out.error === 'aborted') { await stopped(); return; }
@@ -388,15 +406,39 @@ export function createBot(cfg) {
     } catch (err) {
       await progress?.stop();
       if (signal.aborted) await stopped().catch(() => {});
-      else { turn.completed = true; await deliverTurnResponse(ctx, status?.message_id, `❌ Ошибка: ${String(err.message).slice(0, 300)}`, {}); }
+      else {
+        turn.completed = true;
+        if (voice && err.code === 'STT_NOT_CONFIGURED') {
+          if (status) await ctx.api.deleteMessage(chatId, status.message_id).catch(() => {});
+          const thread = ctx.message?.message_thread_id;
+          await ctx.reply(STT_ONBOARDING.text, { reply_markup: STT_ONBOARDING.reply_markup, ...(thread && thread !== 1 ? { message_thread_id: thread } : {}) });
+        } else {
+          const error = voice && !transcribed
+            ? `❌ Не удалось обработать голосовое: ${String(err.message).slice(0, 200)}\n\nПопробуй ещё раз или напиши текстом.`
+            : `❌ Ошибка: ${String(err.message).slice(0, 300)}`;
+          await deliverTurnResponse(ctx, status?.message_id, error, {});
+        }
+      }
     } finally {
       await progress?.stop();
+      if (transcription && !transcribed) await ctx.api.deleteMessage(chatId, transcription.message_id).catch(() => {});
       turn.completed = true;
       if (running.get(chatId) === turn) running.delete(chatId);
     }
   }
 
-  bot.on(['message:voice', 'message:photo', 'message:video', 'message:document'], async (ctx) => {
+  bot.on('message:voice', async ctx => {
+    const { state } = await loadState();
+    if (isSetupMode(state)) { await ctx.reply('Сначала подключи AI: /start'); return; }
+    if (stopping) return;
+    if (running.has(ctx.chat.id)) { await ctx.reply('Уже работаю над предыдущим сообщением. /stop — прервать.'); return; }
+    const turn = { controller: new AbortController(), completed: false, done: null };
+    running.set(ctx.chat.id, turn);
+    // Speech never passes through pending text forms or fabricated Telegram updates.
+    turn.done = executeTurn(ctx, '', turn, true).catch(err => console.error('[msb/bot] voice delivery failed:', err.message));
+  });
+
+  bot.on(['message:photo', 'message:video', 'message:document'], async (ctx) => {
     const { state } = await loadState();
     if (isSetupMode(state)) {
       await ctx.reply('Сначала подключи AI: /start');
