@@ -76,12 +76,14 @@ export async function listRecentItems({ limit = 50, sinceHours = 48 } = {}, env 
   try {
     const raw = await fs.readFile(itemsPath(env), 'utf8');
     const lines = raw.trim().split('\n');
-    for (let i = lines.length - 1; i >= 0 && out.length < limit; i--) {
+    for (let i = lines.length - 1; i >= 0; i--) {
       try {
         const o = JSON.parse(lines[i]);
-        const t = Date.parse(o.publishedAt || o.savedAt || 0);
+        const published = Date.parse(o.publishedAt);
+        const saved = Date.parse(o.savedAt);
+        const t = Number.isFinite(published) ? published : (Number.isFinite(saved) ? saved : 0);
         if (t && t < since) continue;
-        out.push(o);
+        out.push({ item: o, timestamp: t, position: i });
       } catch {
         /* skip */
       }
@@ -89,5 +91,6 @@ export async function listRecentItems({ limit = 50, sinceHours = 48 } = {}, env 
   } catch {
     /* empty */
   }
-  return out;
+  out.sort((a, b) => b.timestamp - a.timestamp || b.position - a.position);
+  return out.slice(0, Math.max(0, limit)).map((entry) => entry.item);
 }
