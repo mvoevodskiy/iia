@@ -149,9 +149,9 @@ test('different bot processes sharing a profile cannot send the scheduled digest
   const env = { MSB_RUNTIME_ROOT: root };
   await saveState({ timezone: 'UTC' }, env);
   const cfg = await loadMonitorConfig(env);
-  cfg.digest.hour = new Date().getUTCHours();
+  cfg.digest.hour = 6;
   await saveMonitorConfig(cfg, env);
-  await appendItems([{ id: 'fixture', title: 'fixture', publishedAt: new Date().toISOString() }], env);
+  await appendItems([{ id: 'fixture', title: 'fixture', publishedAt: '2026-11-06T05:59:00.000Z' }], env);
   const script = fileURLToPath(new URL('./fixtures/monitor-concurrent.mjs', import.meta.url));
   const child = () => {
     const proc = spawn(process.execPath, [script, root], { stdio: ['pipe', 'pipe', 'pipe'] });
