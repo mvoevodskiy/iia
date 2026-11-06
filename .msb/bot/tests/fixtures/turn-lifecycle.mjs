@@ -99,7 +99,7 @@ try {
     const number = children.length + 1;
     const child = new EventEmitter();
     child.stdin = new PassThrough(); child.stdout = new PassThrough(); child.stderr = new PassThrough();
-    const record = { number, args, prompt: '', statusMessageId: report.statusIds.at(-1) };
+    const record = { number, args, prompt: '', provider: options.env.MSB_TURN_PROVIDER, statusMessageId: report.statusIds.at(-1) };
     report.cli.push(record);
     report.events.push(`cli-start:${number}`);
     activeChildren++;

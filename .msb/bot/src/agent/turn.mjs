@@ -51,6 +51,9 @@ export async function runAgentTurn({
   const result = await runClaudeTurn({
     prompt,
     sessionId: state.ccSessionId || undefined,
+    // Bind this turn to the provider observed with the session, even if the
+    // menu changes the selected provider before the child process starts.
+    providerId: state.extAuthBypass || 'claude',
     model,
     effort,
     permissionMode,

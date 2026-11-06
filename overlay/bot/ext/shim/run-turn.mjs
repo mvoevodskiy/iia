@@ -9,6 +9,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadStore, encodeExtSession, setSession, decodeExtSession } from '../store.mjs';
+import { isProviderId } from '../providers.mjs';
 import { parseClaudeArgv, readStdin, buildPrompt } from '../adapters/parse-args.mjs';
 import { emit, emitInit, emitAssistantText, emitResult, emitError } from '../adapters/stream.mjs';
 import { runCursorTurn, isCursorSessionId } from '../adapters/cursor.mjs';
@@ -182,10 +183,18 @@ async function runAlternate(providerId, argv) {
 async function main() {
   const argv = process.argv.slice(2);
   let active = 'claude';
-  try {
-    active = (await loadStore()).active || 'claude';
-  } catch (err) {
-    console.error('[msb/ext/shim] store load failed:', err.message);
+  const pinned = process.env.MSB_TURN_PROVIDER;
+  if (pinned) {
+    if (!isProviderId(pinned)) throw new Error('Invalid turn provider');
+    if (process.env.JARVIS_CC_ONLY === '1' && pinned !== 'claude') throw new Error('Turn provider conflicts with Claude-only mode');
+    active = pinned;
+  } else {
+    // Compatibility with legacy/direct shim callers that have no turn snapshot.
+    try {
+      active = (await loadStore()).active || 'claude';
+    } catch (err) {
+      console.error('[msb/ext/shim] store load failed:', err.message);
+    }
   }
 
   if (active === 'claude' || process.env.JARVIS_CC_ONLY === '1') {

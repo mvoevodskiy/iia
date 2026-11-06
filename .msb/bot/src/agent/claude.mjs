@@ -16,6 +16,7 @@ const PROMPT_FILE_THRESHOLD = 40 * 1024;
  * @typedef {object} ClaudeTurnOptions
  * @property {string} prompt
  * @property {string} [sessionId]
+ * @property {string} [providerId]
  * @property {string} [model]
  * @property {string} [effort]
  * @property {string} [permissionMode]
@@ -111,6 +112,7 @@ export async function runClaudeTurn(opts) {
         cwd,
         env: {
           ...process.env,
+          MSB_TURN_PROVIDER: opts.providerId || undefined,
           CI: '1',
           CLAUDE_CODE_OAUTH_TOKEN: process.env.CLAUDE_CODE_OAUTH_TOKEN,
           CLAUDE_CODE_AUTO_COMPACT_WINDOW: process.env.CLAUDE_CODE_AUTO_COMPACT_WINDOW || '200000',

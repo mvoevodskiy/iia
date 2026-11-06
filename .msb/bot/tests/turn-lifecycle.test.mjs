@@ -109,6 +109,7 @@ test('turn lifecycle: a late turn cannot replace the session after switching awa
   assert.equal(r.state.ccSessionId, 'ext:codex:0199a213-81c0-7800-8aa1-bbab2a035a53');
   assert.equal(r.state.parkedCcSessions.claude, 'saved-claude-session');
   assert.equal(r.state.sessionEpoch, 2);
+  assert.equal(r.cli[0].provider, 'codex', 'Pass the provider selected at turn start to the CLI');
 });
 
 test('turn lifecycle: /newtask stays reset across provider switches and a late turn', () => {

@@ -54,7 +54,10 @@ Owner-check выполняется в [`installUpdateHook`](integration/update-h
 ## Исполнение CLI
 
 [`shim/run-turn.mjs`](shim/run-turn.mjs) — граница с ядром: читает Claude argv/stdin,
-выбирает provider и возвращает совместимые stream-json события.
+выбирает provider и возвращает совместимые stream-json события. Для хода нового
+ядра provider фиксируется вместе с `ccSessionId` при чтении state и передаётся в
+shim; поздняя смена меню не направляет начатый запрос другому CLI. Прямые legacy
+вызовы без снимка продолжают читать активный provider из store.
 
 | Подмодуль | Файл → функция | Проверка |
 |---|---|---|

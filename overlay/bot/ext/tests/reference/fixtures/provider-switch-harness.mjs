@@ -106,11 +106,11 @@ async function trace() {
   return text.trim() ? text.trim().split('\n').map(JSON.parse) : [];
 }
 
-async function runShim(argv) {
+async function runShim(argv, envOverrides = {}) {
   const script = fileURLToPath(new URL('../../../shim/run-turn.mjs', import.meta.url));
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [script, ...argv], {
-      cwd: workspace, env: { ...process.env }, stdio: ['pipe', 'pipe', 'pipe'],
+      cwd: workspace, env: { ...process.env, ...envOverrides }, stdio: ['pipe', 'pipe', 'pipe'],
     });
     let stdout = '';
     let stderr = '';
@@ -240,6 +240,22 @@ if (engineMenuScenario) {
     claudeAuthUnchanged: process.env.CLAUDE_CODE_OAUTH_TOKEN === originalClaudeAuth,
     foreignCode: foreign.code, ownCode: own.code,
     forwarded: claudeCalls.map(({ argv, stdin }) => ({ argv, stdin })) };
+} else if (scenario === 'pinned-route') {
+  // The user changes the selected provider after an earlier turn took its snapshot.
+  await writeJSON(storeFile, { ...initialStore, active:'claude', sessions:{codex:thread} });
+  const codexTurn = await runShim(['-p', '--resume', session], { MSB_TURN_PROVIDER:'codex' });
+  await writeJSON(storeFile, { ...initialStore, active:'codex', sessions:{codex:thread} });
+  const claudeTurn = await runShim(['-p', '--resume', 'reference-claude-session'], { MSB_TURN_PROVIDER:'claude' });
+  const beforeInvalid = (await trace()).length;
+  const invalidTurn = await runShim(['-p'], { MSB_TURN_PROVIDER:'invalid-provider' });
+  const restrictedTurn = await runShim(['-p'], { MSB_TURN_PROVIDER:'codex', JARVIS_CC_ONLY:'1' });
+  const calls = await trace();
+  result = { codexTurnCode:codexTurn.code, claudeTurnCode:claudeTurn.code, invalidTurnCode:invalidTurn.code,
+    restrictedTurnCode:restrictedTurn.code,
+    codexCalls:calls.filter(x => x.name==='codex' && x.argv[0]==='exec').length,
+    claudeCalls:calls.filter(x => x.name==='claude').map(x => x.argv),
+    invalidLaunchedCli:calls.length!==beforeInvalid,
+    codexResumedOwnSession:calls.some(x => x.name==='codex' && x.argv.includes('resume') && x.argv.includes(thread)) };
 } else if (scenario === 'invalid-login' || scenario === 'foreign-owner') {
   const f = await hookedBot();
   const beforeState = await fs.readFile(stateFile, 'utf8');
