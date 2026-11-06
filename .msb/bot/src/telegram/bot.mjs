@@ -564,7 +564,7 @@ export function createBot(cfg, { bot = new Bot(cfg.botToken), runTurn = runAgent
       await ctx.reply('Сначала подключи AI: /start');
       return;
     }
-    await ctx.reply('Обработка голоса и вложений в текущем Telegram-ядре пока не подключена. Перешли задачу текстом.');
+    await ctx.reply('Обработка вложений в текущем Telegram-ядре пока не подключена. Перешли задачу текстом.');
   });
 
   // set commands after start

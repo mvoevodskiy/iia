@@ -39,7 +39,7 @@ async function fixture(t, runTurn = async () => ({ ok: true, text: 'fixture' }),
     };
     use(fn) { this.middleware.push(fn); }
     command(name, fn) { this.commands.set(name, fn); }
-    on(name, fn) { this.handlers.set(name, fn); }
+    on(name, fn) { for (const event of Array.isArray(name) ? name : [name]) this.handlers.set(event, fn); }
     async handleUpdate(update) {
       const event = update.callback_query || update.message;
       const ctx = { from: event.from, chat: event.message?.chat || event.chat, message: update.message,
@@ -47,7 +47,7 @@ async function fixture(t, runTurn = async () => ({ ok: true, text: 'fixture' }),
         reply: (text) => this.api.sendMessage(42, text), answerCallbackQuery: async () => {} };
       const text = ctx.message?.text;
       const handler = ctx.callbackQuery ? this.handlers.get('callback_query:data')
-        : text?.startsWith('/') ? this.commands.get(text.slice(1)) : this.handlers.get('message:text');
+        : text?.startsWith('/') ? this.commands.get(text.slice(1)) : this.handlers.get(text ? 'message:text' : update.message?.photo ? 'message:photo' : update.message?.video ? 'message:video' : 'message:document');
       const step = (i) => i < this.middleware.length ? this.middleware[i](ctx, () => step(i + 1)) : handler?.(ctx);
       return step(0);
     }
@@ -317,3 +317,20 @@ async function until(check) {
   const end = Date.now() + 2000;
   while (!check()) { if (Date.now() > end) throw Error('Timed out waiting for detached turn'); await new Promise(r => setTimeout(r, 5)); }
 }
+
+// Old-core help reports voice support (vendor/UI-SCREENS.md); current open-core
+// retains voice/STT but not photo/video/document ingestion. Exercise both routes.
+test('help and attachment fallback do not claim that working voice is unavailable', async (t) => {
+  const f = await fixture(t, undefined, { overlay: false });
+  await f.message('/help');
+  const help = f.messages.at(-1);
+  assert.match(help, /Голосов[^\n]*распознаван/iu);
+  assert.match(help, /вложени[^\n]*пока не подключен/iu);
+  assert.doesNotMatch(help, /голосов[^\n]*не подключен/iu);
+  for (const kind of ['photo', 'video', 'document']) {
+    await f.bot.handleUpdate({ message: { message_id: 100, date: 1, chat: { id: 42 },
+      from: { id: 42, is_bot: false, first_name: 'Fixture' }, [kind]: {} } });
+    assert.match(f.messages.at(-1), /вложени[^\n]*пока не подключен/iu);
+    assert.doesNotMatch(f.messages.at(-1), /голос/iu);
+  }
+});
