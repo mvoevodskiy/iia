@@ -55,7 +55,7 @@ test('ordinary CLI success is unchanged and later abort sends no signals', async
   assert.equal(result.sessionId, 'reference-success');
   assert.equal(result.isError, false);
   assert.equal(result.aborted, false);
-  assert.deepEqual(result.usage, { inputTokens: 7, outputTokens: 3 });
+  assert.deepEqual(result.usage, { inputTokens: 7, outputTokens: 3, cacheReadTokens: 0, cacheCreationTokens: 0 });
   assert.deepEqual(calls, []);
 });
 

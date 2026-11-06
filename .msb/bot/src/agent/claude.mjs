@@ -173,6 +173,8 @@ export async function runClaudeTurn(opts) {
     let isError = false;
     let inputTokens = 0;
     let outputTokens = 0;
+    let cacheReadTokens = 0;
+    let cacheCreationTokens = 0;
     let costUsd;
     const toolsUsed = [];
     let toolCount = 0;
@@ -202,6 +204,8 @@ export async function runClaudeTurn(opts) {
             if (msg?.usage) {
               if (typeof msg.usage.input_tokens === 'number') inputTokens = msg.usage.input_tokens;
               if (typeof msg.usage.output_tokens === 'number') outputTokens = msg.usage.output_tokens;
+              cacheReadTokens = msg.usage.cache_read_input_tokens || 0;
+              cacheCreationTokens = msg.usage.cache_creation_input_tokens || 0;
             }
             for (const part of msg?.content || []) {
               if (part.type === 'text' && part.text) text += part.text;
@@ -221,6 +225,8 @@ export async function runClaudeTurn(opts) {
             if (ev.usage) {
               if (typeof ev.usage.input_tokens === 'number') inputTokens = ev.usage.input_tokens;
               if (typeof ev.usage.output_tokens === 'number') outputTokens = ev.usage.output_tokens;
+              cacheReadTokens = ev.usage.cache_read_input_tokens || 0;
+              cacheCreationTokens = ev.usage.cache_creation_input_tokens || 0;
             }
             break;
           default:
@@ -250,7 +256,7 @@ export async function runClaudeTurn(opts) {
         exitCode: code,
         signal,
         aborted: Boolean(opts.signal?.aborted),
-        usage: { inputTokens, outputTokens },
+        usage: { inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens },
         costUsd,
         toolsUsed,
         toolCount,

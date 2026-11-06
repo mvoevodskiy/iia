@@ -144,3 +144,8 @@ pass; existing core 73 and overlay 55 checks pass. The standalone branch still
 has the previously recorded stream-cut/session failure reference; it is outside
 this menu change. JAR1's compatibility package retains its existing fix and
 passes all 167 checks, including every old and new reference scenario.
+
+Alignment checkpoint: native context, MAX/top-level TOML and session-error
+behavior now live in the canonical source. The previously RED stream-cut test
+passes; all 150 checks of this checkpoint pass. See alignment-checkpoint.json.
+The JAR1 release has not been changed by this local checkpoint.

@@ -15,10 +15,10 @@ export function emitInit({ sessionId, model, providerId }) {
   });
 }
 
-function normalizeUsage(usage, text) {
+function normalizeUsage(usage, text, providerId) {
   if (usage && typeof usage === 'object') {
     return {
-      input_tokens: Number(usage.input_tokens) || 0,
+      input_tokens: Math.max(0, (Number(usage.input_tokens) || 0) - (providerId === 'codex' ? Number(usage.cached_input_tokens) || 0 : 0)),
       output_tokens: Number(usage.output_tokens) || Math.max(1, Math.ceil(String(text || '').length / 4)),
       cache_read_input_tokens: Number(usage.cached_input_tokens) || 0,
     };
@@ -29,7 +29,7 @@ function normalizeUsage(usage, text) {
   };
 }
 
-export function emitAssistantText(text, sessionId, { model, usage } = {}) {
+export function emitAssistantText(text, sessionId, { model, usage, providerId } = {}) {
   emit({
     type: 'assistant',
     message: {
@@ -39,13 +39,13 @@ export function emitAssistantText(text, sessionId, { model, usage } = {}) {
       model: model || 'ext',
       content: [{ type: 'text', text: text || '(пустой ответ)' }],
       stop_reason: 'end_turn',
-      usage: normalizeUsage(usage, text),
+      usage: normalizeUsage(usage, text, providerId),
     },
     session_id: sessionId,
   });
 }
 
-export function emitResult({ sessionId, text, isError = false, errorStatus, usage, model }) {
+export function emitResult({ sessionId, text, isError = false, errorStatus, usage, model, providerId }) {
   const payload = {
     type: 'result',
     subtype: isError ? 'error' : 'success',
@@ -56,7 +56,7 @@ export function emitResult({ sessionId, text, isError = false, errorStatus, usag
   };
   if (model) payload.model = model;
   if (usage && typeof usage === 'object') {
-    payload.usage = normalizeUsage(usage, text);
+    payload.usage = normalizeUsage(usage, text, providerId);
   }
   if (typeof errorStatus === 'number') payload.api_error_status = errorStatus;
   emit(payload);

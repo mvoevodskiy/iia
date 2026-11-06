@@ -8,6 +8,7 @@ import {
 } from '../state.mjs';
 import { runClaudeTurn } from './claude.mjs';
 import { buildSystemPrompt } from './system-prompt.mjs';
+import { readSessionContext } from './context.mjs';
 
 /**
  * Один ход агента для чата или автономии.
@@ -73,11 +74,17 @@ export async function runAgentTurn({
     },
   });
 
-  if (!signal?.aborted && !result.aborted && !result.isError && result.sessionId && result.sessionId !== state.ccSessionId) {
+  result.context = await readSessionContext(result.sessionId, env);
+  if (result.sessionId && !result.isError && !result.aborted && !signal?.aborted) {
     await updateState((s) => {
-      if (signal?.aborted || s.ccSessionId !== state.ccSessionId ||
-          (s.sessionEpoch || 0) !== (state.sessionEpoch || 0) || s.extAuthBypass !== state.extAuthBypass) return s;
+      // /newtask during a running turn must not resurrect the old session.
+      if (signal?.aborted || s.ccSessionId !== state.ccSessionId || (s.sessionEpoch || 0) !== (state.sessionEpoch || 0) || s.extAuthBypass !== state.extAuthBypass) {
+        result.context = null;
+        return s;
+      }
       s.ccSessionId = result.sessionId;
+      s.lastCcUsage = { ...result.usage, ...result.context, model: result.model,
+        sessionId: result.sessionId, updatedAt: new Date().toISOString() };
       return s;
     }, env);
   }

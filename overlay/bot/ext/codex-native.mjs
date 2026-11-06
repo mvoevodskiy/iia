@@ -48,7 +48,8 @@ export function parseCodexTomlScalars(text) {
   const out = {};
   for (const line of String(text || '').split(/\n/)) {
     const t = line.trim();
-    if (!t || t.startsWith('#') || t.startsWith('[')) continue;
+    if (t.startsWith('[')) break;
+    if (!t || t.startsWith('#')) continue;
     const m = /^([A-Za-z0-9_.]+)\s*=\s*(.+)$/.exec(t);
     if (!m) continue;
     let v = m[2].trim();

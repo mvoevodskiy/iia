@@ -130,6 +130,14 @@ async function runAlternate(providerId, argv) {
   // Важно: не писать session_id вида ext:cursor:failed — бандл делает --resume и CLI падает с кодом 1.
   // Sentinel norestart адаптеры должны игнорировать (новый тред), а не отвечать «повреждённый ID».
   if (!result.ok) {
+    if (providerId === 'codex') {
+      // A transport/model error does not invalidate an existing conversation.
+      const errId = parsed.resume || '';
+      emitInit({ sessionId: errId, model: modelLabel, providerId });
+      emitError(result.text || 'ход не завершён', errId, { model: modelLabel });
+      process.exit(1);
+      return;
+    }
     try {
       await setSession(providerId, null);
     } catch {
@@ -149,13 +157,14 @@ async function runAlternate(providerId, argv) {
 
   const finalSession = encodeExtSession(providerId, nativeId);
   emitInit({ sessionId: finalSession, model: modelLabel, providerId });
-  emitAssistantText(result.text, finalSession, { model: modelLabel, usage: result.usage });
+  emitAssistantText(result.text, finalSession, { model: modelLabel, usage: result.usage, providerId });
   emitResult({
     sessionId: finalSession,
     text: result.text,
     isError: false,
     model: modelLabel,
     usage: result.usage,
+    providerId,
   });
 
   if (!String(nativeId).startsWith('norestart-')) {

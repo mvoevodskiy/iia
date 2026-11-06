@@ -1,0 +1,23 @@
+{
+  "stage": "Native context and Codex session/config alignment",
+  "base": "f28b988",
+  "checks": {
+    "tests": 150,
+    "pass": 150,
+    "fail": 0,
+    "skipped": 0
+  },
+  "ported": [
+    "native last-request context and cache accounting",
+    "MAX and top-level TOML",
+    "no replay after stream-cut",
+    "preserve failed resume and validate returned session"
+  ],
+  "pending": [
+    "menu/form and remaining state writer alignment",
+    "JAR1 runtime profile and single-commit packaging",
+    "navigation and focused module extraction",
+    "Linux and live acceptance"
+  ],
+  "jar1_changed": false
+}

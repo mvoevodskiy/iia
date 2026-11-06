@@ -164,7 +164,7 @@ async function execOnce({
   return { res, parsedOut, model };
 }
 
-function finalizeParsed({ res, parsedOut, model, resumeRequested }) {
+export function finalizeParsed({ res, parsedOut, model, resumeRequested }) {
   if (parsedOut.turnFailed) {
     const raw = String(parsedOut.turnFailed);
     const streamCut = parsedOut.streamCut || isCodexStreamCutMessage(raw);
@@ -190,10 +190,9 @@ function finalizeParsed({ res, parsedOut, model, resumeRequested }) {
         model: model || undefined,
       };
     }
+    threadId = resumeRequested;
   } else if (resumeRequested && threadId && threadId !== resumeRequested) {
-    console.error(
-      `[msb/ext/codex] resume thread changed ${resumeRequested} → ${threadId} (accept if turn ok)`,
-    );
+    return { ok: false, text: 'Codex вернул другую сессию. Исходная беседа сохранена.', model };
   }
 
   const ok =
@@ -286,25 +285,8 @@ export async function runCodexTurn({ prompt, parsed, cwd, env, home = os.homedir
       forceHttp: true,
     });
 
-  let raw = await run(resumeRequested);
-  if (raw.ok === false) return raw; // timedOut / early fail
-  let result = finalizeParsed({ ...raw, resumeRequested });
-
-  // Один автоматический повтор после обрыва WS: новый тред, уже на HTTP provider.
-  if (!result.ok && result.streamCut) {
-    console.error('[msb/ext/codex] stream cut → retry once without resume');
-    try {
-      await ensureCodexStableTransport(home);
-    } catch {
-      /* ignore */
-    }
-    raw = await run(null);
-    if (raw.ok === false) return raw;
-    result = finalizeParsed({ ...raw, resumeRequested: null });
-    if (result.ok) {
-      result.text = `${result.text}\n\n_(повтор после обрыва websocket)_`;
-    }
-  }
-
-  return result;
+  const raw = await run(resumeRequested);
+  if (raw.ok === false) return raw;
+  // Never replay a tool-capable request in a fresh thread after a transport error.
+  return finalizeParsed({ ...raw, resumeRequested });
 }
