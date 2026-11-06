@@ -315,7 +315,7 @@ export async function buildEffortMenu(env = process.env, home = os.homedir()) {
 
   const title = providerTitle(providerId);
   const modelId = await currentModelId(providerId, store, env, home);
-  const current = (await currentEffortId(providerId, env, home)) || 'high';
+  const current = await currentEffortId(providerId, env, home);
   const levels = [
     { id: 'low', desc: 'быстро, минимум раздумий' },
     { id: 'medium', desc: 'обычная глубина' },
@@ -332,9 +332,9 @@ export async function buildEffortMenu(env = process.env, home = os.homedir()) {
     '',
     'Насколько глубоко Codex обдумывает ответ (`model_reasoning_effort`).',
     '',
-    ...levels.map((z) => `<b>${z.id}</b>: ${z.desc}${z.id === 'high' ? ' (по умолчанию)' : ''}`),
+    ...levels.map((z) => `<b>${z.id}</b>: ${z.desc}`),
     '',
-    `<b>Сейчас:</b> ${esc(current)}`,
+    `<b>Сейчас:</b> ${esc(current || 'по умолчанию CLI')}`,
   ];
 
   const row = [];
