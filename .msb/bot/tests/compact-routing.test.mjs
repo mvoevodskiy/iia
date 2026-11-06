@@ -20,7 +20,10 @@ test('Claude requires a compact boundary in the original session', async () => {
   assert.equal(options.sessionId, state.ccSessionId);
   assert.equal(options.maxTurns, 1);
   assert.ok(options.disallowedTools.includes('Write'));
-  assert.equal((await compactSession(state, { runClaude: async () => ({ sessionId: state.ccSessionId, isError: false }) })).ok, false);
+  const noop = await compactSession(state, { runClaude: async () => ({ sessionId: state.ccSessionId, isError: false }) });
+  assert.equal(noop.ok, true);
+  assert.equal(noop.compacted, false);
+  assert.match(noop.text, /Сжимать пока нечего/);
   assert.equal((await compactSession(state, { runClaude: async (input) => {
     input.onEvent({ type: 'system', subtype: 'compact_boundary' });
     return { sessionId: 'other-session', isError: false };
@@ -56,4 +59,16 @@ test('a stale session never starts Claude and a guard is scoped to one bot', asy
   const again = trySessionOperation(first);
   assert.equal(typeof again, 'function');
   again();
+});
+
+// origin/master: /compact uses qu(...) when CLI succeeds without compact_boundary.
+test('a short Claude history is a no-op, while actual CLI failure remains an error', async () => {
+  const state = { engine: 'cc', ccSessionId: 'claude-fixture' };
+  const result = await compactSession(state, { runClaude: async () => ({
+    sessionId: state.ccSessionId, isError: false, usage: { inputTokens: 1200, cacheReadTokens: 800, cacheCreationTokens: 0 },
+  }) });
+  assert.equal(result.ok, true);
+  assert.equal(result.compacted, false);
+  assert.equal(result.text, 'Сжимать нечего — контекст не забит: сейчас в нём ~2K токенов. Компакт нужен, когда история большая.');
+  assert.equal((await compactSession(state, { runClaude: async () => ({ isError: true }) })).ok, false);
 });

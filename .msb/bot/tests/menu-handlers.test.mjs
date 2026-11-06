@@ -561,3 +561,12 @@ test('API limit displays the same saved state in menu, screen and /cost', async 
     assert.deepEqual((await loadState()).state, state, 'viewing must not write a default');
   }
 });
+
+test('/compact presents a successful no-op without inventing a compaction or an error', async t => {
+  const f = await fixture(t);
+  const text = 'Сжимать пока нечего — история короткая. Контекст не забит, можно продолжать.';
+  f.bot[Symbol.for('msb.compactProvider')] = async () => ({ ok: true, compacted: false, text });
+  await f.message('/compact');
+  await until(() => f.edits.some(value => value === text));
+  assert.ok(!f.edits.some(value => /успешно сжат|Не получилось/.test(value)));
+});

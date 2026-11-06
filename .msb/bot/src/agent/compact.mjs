@@ -27,6 +27,16 @@ export async function compactSession(state, { signal, isCurrent = async () => tr
   if (signal?.aborted || result.aborted) return { ok: false, aborted: true };
   if (result.sessionId && result.sessionId !== state.ccSessionId) return { ok: false, error: 'Claude вернул другую сессию.' };
   if (result.isError) return { ok: false, error: 'Claude не завершил сжатие.' };
-  if (!boundary) return { ok: false, error: 'Claude не подтвердил сжатие контекста.' };
+  if (!boundary) {
+    // master /compact treated a successful CLI without a boundary as a no-op.
+    const usage = result.usage;
+    const tokens = usage && Number.isFinite(usage.inputTokens)
+      ? usage.inputTokens + (usage.cacheReadTokens || 0) + (usage.cacheCreationTokens || 0) : null;
+    const size = tokens >= 1000 ? `~${Math.round(tokens / 1000)}K` : `~${tokens}`;
+    const text = tokens > 0
+      ? `Сжимать нечего — контекст не забит: сейчас в нём ${size} токенов. Компакт нужен, когда история большая.`
+      : 'Сжимать пока нечего — история короткая. Контекст не забит, можно продолжать.';
+    return { ok: true, compacted: false, text };
+  }
   return { ok: true };
 }

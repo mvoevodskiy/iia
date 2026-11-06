@@ -548,6 +548,7 @@ export function createBot(cfg, { bot = new Bot(cfg.botToken), runTurn = runAgent
       if (!signal.aborted) turn.completed = true;
       if (signal.aborted) await edit('Моя остановочка ✋🏽⛔️');
       else if (result.aborted) await edit('Сессия или движок изменились; сжатие не запускалось.');
+      else if (result.ok && result.compacted === false) await edit(result.text);
       else if (result.ok) {
         await edit(await isCurrent() ? '🗜️ Контекст успешно сжат. Жду команду.' : '🗜️ Контекст прежней сессии успешно сжат.');
       } else await edit(`Не получилось сжать: ${result.error || 'действие не подтверждено'}`);
