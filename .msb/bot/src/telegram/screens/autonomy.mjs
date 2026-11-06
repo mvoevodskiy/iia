@@ -1,10 +1,10 @@
-import profile from '../../../shared/profile.cjs';
 /**
  * Автономка: задачи, история, таймеры и сохранённые права.
  * Навигация: [Telegram](../README.md).
  */
 import { InlineKeyboard } from 'grammy';
 import { listTasks } from '../../autonomy/store.mjs';
+import { historyPages } from '../../autonomy/history.mjs';
 import { loadState } from '../../state.mjs';
 import { escapeHtml } from '../edit.mjs';
 import { BLANK } from './shared.mjs';
@@ -40,7 +40,7 @@ export function autonomyWhatScreen() {
 Скажи словами, что делать и когда. Например: <i>«каждое утро в 9 смотри, что нового у конкурентов»</i> или <i>«раз в час проверяй сервер и пиши, только если сломалось»</i>. Штатный парсер сейчас поддерживает интервалы вида «каждые 6 часов …».
 
 <b>Что можно</b>
-Список задач работает. Карточки, пауза, удаление и просмотр истории через меню пока не подключены.
+Список задач и просмотр истории работают. Карточки, пауза и удаление пока не подключены.
 
 <b>Про права</b>
 Настройка прав сохраняется, но отдельные границы задач в open-core пока не реализованы. Используются права и сессия выбранного CLI.
@@ -90,12 +90,11 @@ ${BLANK}`,
   };
 }
 
-export function autonomyHistoryScreen() {
+export async function autonomyHistoryScreen({ limit = 10, menu = true } = {}) {
+  const pages = await historyPages({ limit, menu });
   return {
-    text: `🕓 <b>История</b>
-
-Просмотр журнала через меню пока не подключён. Прогоны сохраняются в <code>~/${profile.resolveProfile().rootLeaf}/autonomy/runs.jsonl</code>.
-${BLANK}`,
+    text: pages[0],
+    pages,
     keyboard: new InlineKeyboard().text('« Назад', 'auto:home'),
   };
 }

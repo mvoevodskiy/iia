@@ -10,6 +10,7 @@ import { connScreen, envScreen, mcpScreen, skillsScreen, limitScreen, settingsSc
 import { saveMonitorConfig, defaultConfig } from '../src/monitor/config.mjs';
 import { appendItems } from '../src/monitor/store.mjs';
 import { maybeSendDigest } from '../src/monitor/digest.mjs';
+import { autonomyDir } from '../src/paths.mjs';
 import { installUpdateHook } from '../../../overlay/bot/ext/install.mjs';
 
 async function fixture(t, runTurn = async () => ({ ok: true, text: 'fixture' }), { overlay = true } = {}) {
@@ -25,14 +26,14 @@ async function fixture(t, runTurn = async () => ({ ok: true, text: 'fixture' }),
     Object.assign(process.env, previous);
     await fs.rm(home, { recursive: true, force: true });
   });
-  const messages = [], edits = [], deleted = [];
+  const messages = [], edits = [], deleted = [], messageOptions = [];
   class Harness {
     handlers = new Map(); commands = new Map(); middleware = [];
     async start() {}
     async stop() {}
     api = {
       config: { use() {} }, setMyCommands: async () => true, sendChatAction: async () => true,
-      sendMessage: async (_chat, text) => { messages.push(text); return { message_id: messages.length }; },
+      sendMessage: async (_chat, text, opts) => { messages.push(text); messageOptions.push(opts); return { message_id: messages.length }; },
       editMessageText: async (_chat, _id, text) => { edits.push(text); },
       answerCallbackQuery: async () => {},
       deleteMessage: async (_chat, id) => { deleted.push(id); },
@@ -44,10 +45,12 @@ async function fixture(t, runTurn = async () => ({ ok: true, text: 'fixture' }),
       const event = update.callback_query || update.message;
       const ctx = { from: event.from, chat: event.message?.chat || event.chat, message: update.message,
         callbackQuery: update.callback_query, api: this.api,
-        reply: (text) => this.api.sendMessage(42, text), answerCallbackQuery: async () => {} };
+        reply: (text, opts) => this.api.sendMessage(42, text, opts), answerCallbackQuery: async () => {} };
       const text = ctx.message?.text;
+      const command = text?.match(/^\/([^@\s]+)(?:@\S+)?(?:\s+([\s\S]*))?$/);
+      if (command) ctx.match = command[2] || '';
       const handler = ctx.callbackQuery ? this.handlers.get('callback_query:data')
-        : text?.startsWith('/') ? this.commands.get(text.slice(1)) : this.handlers.get(text ? 'message:text' : update.message?.photo ? 'message:photo' : update.message?.video ? 'message:video' : 'message:document');
+        : command ? this.commands.get(command[1]) : this.handlers.get(text ? 'message:text' : update.message?.photo ? 'message:photo' : update.message?.video ? 'message:video' : 'message:document');
       const step = (i) => i < this.middleware.length ? this.middleware[i](ctx, () => step(i + 1)) : handler?.(ctx);
       return step(0);
     }
@@ -59,7 +62,7 @@ async function fixture(t, runTurn = async () => ({ ok: true, text: 'fixture' }),
   await fs.writeFile(storeFile, JSON.stringify({ version: 1, active: 'codex', models: { codex: 'gpt-6.1-terra' }, efforts: { codex: 'max' } }));
   const callback = (data, uid = 42) => bot.handleUpdate({ callback_query: { id: 'q', data, from: { id: uid }, message: { message_id: 1, chat: { id: 42 } } } });
   const message = (text, uid = 42) => bot.handleUpdate({ message: { message_id: 99, text, from: { id: uid }, chat: { id: 42 } } });
-  return { home, bot, callback, message, messages, edits, deleted, storeFile };
+  return { home, bot, callback, message, messages, edits, deleted, messageOptions, storeFile };
 }
 
 test('explicit Back and start cancel env/auth input before ordinary text', async (t) => {
@@ -337,18 +340,84 @@ test('help and attachment fallback do not claim that working voice is unavailabl
 
 // Old help described the legacy implementations; open-core handlers are explicit
 // about missing execution. The help must agree without hiding their commands.
-test('help distinguishes unimplemented undo, tunnel launch and autonomy history', async (t) => {
+test('help distinguishes unavailable actions from the connected autonomy history', async (t) => {
   const f = await fixture(t, undefined, { overlay: false });
   for (const command of ['/help', '/openclaw']) {
     await f.message(command);
     const help = f.messages.at(-1);
     assert.match(help, /\/undo[^\n]*пока не подключен/iu);
     assert.match(help, /\/connect[^\n]*инструкц/iu);
-    assert.match(help, /\/autostatus[^\n]*просмотр[^\n]*пока не подключ[её]н/iu);
+    assert.match(help, /\/autostatus[^\n]*история фоновых прогонов/iu);
+    assert.doesNotMatch(help, /\/autostatus[^\n]*пока не подключ[её]н/iu);
   }
   await f.message('/undo'); assert.match(f.messages.at(-1), /пока не подключена/iu);
   await f.message('/connect'); assert.match(f.messages.at(-1), /сама туннель не запускает/iu);
-  await f.message('/autostatus'); assert.match(f.messages.at(-1), /просмотр журнала[^\n]*пока не подключён/iu);
+  await f.message('/autostatus'); assert.match(f.messages.at(-1), /Автономка ещё не запускалась/iu);
+});
+
+test('autostatus and history menu show recorded results for each engine without starting a turn', async (t) => {
+  let turns = 0;
+  const f = await fixture(t, async () => { turns++; return { ok: true, text: 'unused' }; }, { overlay: false });
+  const dir = autonomyDir();
+  await fs.mkdir(dir, { recursive: true });
+  const rows = Array.from({ length: 3 }, (_, i) => ({
+    at: `2026-11-06T12:0${i}:00.000Z`, taskId: `job-${i}`, ok: i !== 1,
+    error: i === 1 ? 'bad <tool>' : null, preview: `saved & ${i}`,
+  }));
+  await fs.writeFile(path.join(dir, 'runs.jsonl'), `${rows.map((row) => JSON.stringify(row)).join('\n')}\n`);
+  const initial = (await loadState()).state;
+  for (const [engine, provider] of [['cc', 'codex'], ['cc', undefined], ['cc', 'cursor'], ['oc', undefined]]) {
+    const state = { ...initial, engine };
+    if (provider) state.extAuthBypass = provider; else delete state.extAuthBypass;
+    await saveState(state);
+    await f.message('/autostatus 2');
+    const result = f.messages.at(-1);
+    assert.match(result, /последние 2 прогонов/);
+    assert.match(result, /job-2/);
+    assert.match(result, /job-1/);
+    assert.doesNotMatch(result, /job-0/);
+    assert.match(result, /bad &lt;tool&gt;/);
+    assert.match(result, /saved &amp; 2/);
+    assert.deepEqual((await loadState()).state, state);
+  }
+  await f.callback('auto:history');
+  assert.match(f.edits.at(-1), /<b>История<\/b>/);
+  assert.match(f.edits.at(-1), /job-0/);
+  assert.equal(turns, 0);
+});
+
+test('autostatus splits long reports and keeps Back on the last message', async (t) => {
+  const f = await fixture(t, undefined, { overlay: false });
+  const dir = autonomyDir();
+  await fs.mkdir(dir, { recursive: true });
+  const rows = Array.from({ length: 50 }, (_, i) => ({
+    at: '2026-11-06T12:00:00.000Z', taskId: `job-${i}`, ok: true,
+    error: null, preview: '<fixture & text> '.repeat(10),
+  }));
+  await fs.writeFile(path.join(dir, 'runs.jsonl'), `${rows.map((row) => JSON.stringify(row)).join('\n')}\n`);
+  await f.message('/autostatus 50');
+  assert.ok(f.messages.length > 1);
+  assert.ok(f.messages.every((text) => text.length <= 3500));
+  assert.match(f.messages.join(''), /job-49/);
+  assert.match(f.messages.join(''), /job-0/);
+  assert.doesNotMatch(f.messages.join(''), /<fixture/);
+  assert.equal(f.messageOptions.at(-1).reply_markup.inline_keyboard[0][0].callback_data, 'auto:home');
+});
+
+test('history menu splits long reports and keeps Back on the last message', async (t) => {
+  const f = await fixture(t, undefined, { overlay: false });
+  const dir = autonomyDir();
+  await fs.mkdir(dir, { recursive: true });
+  const rows = Array.from({ length: 10 }, (_, i) => ({
+    at: '2026-11-06T12:00:00.000Z', taskId: `job-${i}`, ok: true,
+    error: null, preview: '<fixture & text> '.repeat(45),
+  }));
+  await fs.writeFile(path.join(dir, 'runs.jsonl'), `${rows.map((row) => JSON.stringify(row)).join('\n')}\n`);
+  await f.callback('auto:history');
+  assert.ok(f.edits.length > 0 && f.messages.length > 0);
+  assert.ok([...f.edits, ...f.messages].every((text) => text.length <= 3500));
+  assert.match([...f.edits, ...f.messages].join(''), /job-0/);
+  assert.equal(f.messageOptions.at(-1).reply_markup.inline_keyboard[0][0].callback_data, 'auto:home');
 });
 
 // The default must never be presented as a saved value when the property is absent.

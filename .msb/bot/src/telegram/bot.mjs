@@ -204,9 +204,18 @@ export function createBot(cfg, { bot = new Bot(cfg.botToken), runTurn = runAgent
   });
 
   bot.command('autostatus', async (ctx) => {
+    if (running.has(ctx.chat.id)) {
+      await ctx.reply('⏳ Сейчас идёт ход — повтори /autostatus, когда освобожусь.');
+      return;
+    }
     const { autonomyHistoryScreen } = await import('./screens.mjs');
-    const view = autonomyHistoryScreen();
-    await ctx.reply(view.text, { parse_mode: 'HTML', reply_markup: view.keyboard });
+    const view = await autonomyHistoryScreen({ limit: ctx.match, menu: false });
+    for (let i = 0; i < view.pages.length; i++) {
+      await ctx.reply(view.pages[i], {
+        parse_mode: 'HTML',
+        ...(i === view.pages.length - 1 ? { reply_markup: view.keyboard } : {}),
+      });
+    }
   });
 
   bot.command('autoactions', async (ctx) => {
