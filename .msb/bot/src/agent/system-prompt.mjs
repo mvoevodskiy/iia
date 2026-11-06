@@ -1,3 +1,4 @@
+import profile from '../../shared/profile.cjs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { workspaceDir } from '../paths.mjs';
@@ -20,7 +21,7 @@ export async function buildSystemPrompt({ workspace = workspaceDir(), extra = ''
   chunks.push(
     [
       '# Runtime',
-      'Ты работаешь как личный агент владельца в Telegram через MSB open-core.',
+      `Ты работаешь как личный агент владельца в Telegram через ${profile.resolveProfile().codexTitle} open-core.`,
       'Отвечай на русском, если владелец не попросил иное.',
       'Рабочий каталог — workspace сервера. Проекты — в ~/projects/.',
       'Не выдумывай секреты и чужие продукты. На необратимом — спроси.',
