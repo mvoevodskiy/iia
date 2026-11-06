@@ -12,7 +12,7 @@ if (!['early-stop', 'status-failure', 'late-edit', 'next-turn', 'saved-session',
   throw new Error('Unknown lifecycle scenario');
 }
 const fixtureHome = await fs.mkdtemp(path.join(os.tmpdir(), 'msb-turn-lifecycle-'));
-const report = { events: [], calls: [], cli: [], finalMessages: {}, unhandled: [], forbidden: [], maxActiveChildren: 0 };
+const report = { events: [], calls: [], cli: [], statusIds: [], finalMessages: {}, unhandled: [], forbidden: [], maxActiveChildren: 0 };
 const children = [];
 let bot, polling, stopPromise, updateId = 0, messageId = 100, activeChildren = 0;
 let firstStatus = true, firstProgress = true;
@@ -24,6 +24,18 @@ let notifyInbox;
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const settle = async () => { await new Promise(setImmediate); await new Promise(setImmediate); };
 const watchdog = setTimeout(() => { console.error(`Lifecycle timeout ${scenario}: ${report.events.join(' -> ')}`); process.exit(2); }, 6000);
+const nativeSetInterval = globalThis.setInterval;
+const nativeClearInterval = globalThis.clearInterval;
+const liveIntervals = new Set();
+globalThis.setInterval = (...args) => {
+  const timer = nativeSetInterval(...args);
+  liveIntervals.add(timer);
+  return timer;
+};
+globalThis.clearInterval = (timer) => {
+  liveIntervals.delete(timer);
+  return nativeClearInterval(timer);
+};
 process.on('unhandledRejection', (err) => report.unhandled.push(String(err?.message || err)));
 
 async function until(condition, label) {
@@ -34,6 +46,12 @@ async function until(condition, label) {
   }
 }
 const has = (event) => report.events.includes(event);
+function hasAnswer(number) {
+  const cli = report.cli.find((entry) => entry.number === number);
+  const text = new RegExp(`^success-${number}\\n\\n<blockquote>⏱ \\d+\\.\\ds</blockquote>$`);
+  return report.calls.some((call) => call.applied && call.method === 'editMessageText'
+    && call.messageId === cli?.statusMessageId && call.parseMode === 'HTML' && text.test(call.text));
+}
 function send(text) {
   const id = ++updateId;
   inbox.push({ update_id: id, message: {
@@ -69,7 +87,7 @@ try {
     const number = children.length + 1;
     const child = new EventEmitter();
     child.stdin = new PassThrough(); child.stdout = new PassThrough(); child.stderr = new PassThrough();
-    const record = { number, args, prompt: '' };
+    const record = { number, args, prompt: '', statusMessageId: report.statusIds.at(-1) };
     report.cli.push(record);
     report.events.push(`cli-start:${number}`);
     activeChildren++;
@@ -130,8 +148,9 @@ try {
     }
     if (method === 'sendMessage' || method === 'editMessageText') {
       const id = payload.message_id || ++messageId;
-      const call = { method, text: payload.text, messageId: id, applied: false };
+      const call = { method, text: payload.text, messageId: id, parseMode: payload.parse_mode, applied: false };
       report.calls.push(call);
+      if (method === 'sendMessage' && payload.text === 'Думаю ⏳') report.statusIds.push(id);
       if (method === 'sendMessage' && payload.text === 'Думаю ⏳' && firstStatus) {
         firstStatus = false;
         report.initialStatusId = id;
@@ -144,7 +163,8 @@ try {
           throw new Error('fixture initial status failed');
         }
       }
-      if (method === 'editMessageText' && payload.text.startsWith('🧠') && firstProgress) {
+      if (method === 'editMessageText' && id === report.initialStatusId
+          && payload.text === 'Думаю… ⏳' && firstProgress) {
         firstProgress = false;
         if (scenario === 'late-edit') {
           report.events.push('progress-edit-dispatched');
@@ -177,14 +197,14 @@ try {
     send('after failed status');
     await until(() => has('cli-init:1'), 'next CLI after status failure');
     children[0].close('success');
-    await until(() => report.calls.some((call) => call.applied && call.text === 'success-1'), 'next answer');
+    await until(() => hasAnswer(1), 'next answer replacing its status with the original HTML footer');
   } else if (scenario === 'reset-session') {
     await until(() => has('cli-init:1'), 'first native session before reset');
     send('/newtask');
     await until(() => report.calls.some((call) => call.applied && call.text === 'Новая сессия. Пиши задачу.'), 'newtask during the first turn');
     report.events.push('reset-acknowledged');
     children[0].close('late-result');
-    await until(() => report.calls.some((call) => call.applied && call.text === 'success-1'), 'late answer after reset');
+    await until(() => hasAnswer(1), 'late answer after reset replacing its status');
   } else {
     await until(() => has('cli-init:1'), 'first native session');
     if (scenario === 'late-edit') await until(() => has('progress-edit-dispatched'), 'held progress edit');
@@ -204,7 +224,7 @@ try {
       send('must still be busy');
       await until(() => report.calls.filter((call) => call.applied && call.text.startsWith('Уже работаю')).length === 2, 'replacement lock remains owned');
       children[1].close('success');
-      await until(() => report.calls.some((call) => call.applied && call.text === 'success-2'), 'replacement answer');
+      await until(() => hasAnswer(2), 'replacement answer replacing its own status');
     }
   }
   await settle();
@@ -214,6 +234,7 @@ try {
   await Promise.all([polling, stopPromise]);
   await settle();
   report.events.push('stop-drained');
+  report.intervalsAfterStop = liveIntervals.size;
   report.activeChildren = activeChildren;
   report.state = JSON.parse(await fs.readFile(stateFile, 'utf8'));
   console.log('LIFECYCLE_RESULT=' + JSON.stringify(report));
@@ -222,6 +243,9 @@ try {
   for (const child of children) child.close();
   if (bot && !stopPromise) await bot.stop().catch(() => {});
   if (polling) await polling.catch(() => {});
+  for (const timer of liveIntervals) nativeClearInterval(timer);
+  globalThis.setInterval = nativeSetInterval;
+  globalThis.clearInterval = nativeClearInterval;
   clearTimeout(watchdog);
   await fs.rm(fixtureHome, { recursive: true, force: true });
 }

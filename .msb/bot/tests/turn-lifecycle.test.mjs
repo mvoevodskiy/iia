@@ -23,7 +23,21 @@ function run(scenario) {
   assert.ok(report.events.includes('polling-started'), 'Exercise actual bot.start() polling, not concurrent handleUpdate calls.');
   assert.ok(report.events.includes('stop-drained'), 'The stop wrapper must finish before state and delivery are inspected.');
   assert.ok(report.calls.some(call => call.text === 'Нечего останавливать 🤷'), 'Preserve the original idle stop response.');
+  assert.equal(report.intervalsAfterStop, 0, 'No progress/typing interval may survive the drained stop.');
   return report;
+}
+
+function assertAnswerReplacedStatus(report, number) {
+  const cli = report.cli.find((entry) => entry.number === number);
+  assert.ok(cli?.statusMessageId, 'Associate the answer with its own original status message.');
+  const answers = report.calls.filter((call) => call.applied && new RegExp(`^success-${number}(?:\\n|$)`).test(call.text));
+  assert.equal(answers.length, 1, 'Deliver the completed answer once.');
+  const answer = answers[0];
+  assert.equal(answer.method, 'editMessageText');
+  assert.equal(answer.messageId, cli.statusMessageId);
+  assert.equal(answer.parseMode, 'HTML');
+  assert.match(answer.text, new RegExp(`^success-${number}\\n\\n<blockquote>⏱ \\d+\\.\\ds</blockquote>$`));
+  assert.equal(report.finalMessages[cli.statusMessageId], answer.text, 'Late progress must not overwrite the answer.');
 }
 
 test('turn lifecycle: early stop avoids spawn; failed initial status does not strand the next turn', () => {
@@ -35,7 +49,7 @@ test('turn lifecycle: early stop avoids spawn; failed initial status does not st
   const failed = run('status-failure');
   assert.deepEqual(failed.cli.map((call) => call.prompt), ['after failed status']);
   assert.ok(failed.calls.some((call) => call.text?.includes('fixture initial status failed')));
-  assert.ok(failed.calls.some((call) => call.text === 'success-1'));
+  assertAnswerReplacedStatus(failed, 1);
 });
 
 test('turn lifecycle: an in-flight progress edit finishes before the terminal stopped edit', () => {
@@ -44,6 +58,9 @@ test('turn lifecycle: an in-flight progress edit finishes before the terminal st
   assert.ok(order('progress-edit-dispatched') < order('cli-abort:1'));
   assert.ok(order('cli-abort:1') < order('progress-edit-applied'));
   assert.ok(order('progress-edit-applied') < order('stopped-edit-applied'));
+  assert.ok(r.calls.some((call) => call.method === 'editMessageText'
+    && call.messageId === r.initialStatusId && call.text === 'Думаю… ⏳' && call.applied),
+  'The deliberately delayed edit must be the original thinking frame, not a model label.');
   assert.equal(r.finalMessages[r.initialStatusId], stopped, 'Late progress must not replace the terminal state.');
   assert.ok(!r.calls.some((call) => call.text === '✅'), 'Cancellation must never report success.');
 });
@@ -56,7 +73,7 @@ test('turn lifecycle: stop holds the lock through delayed CLI close, then admits
   assert.equal(r.calls.filter((call) => call.text?.startsWith('Уже работаю')).length, 2);
   assert.ok(r.events.includes('cli-abort:1'));
   assert.ok(!r.events.includes('cli-abort:2'), 'Finishing the old turn must not disturb the replacement turn.');
-  assert.ok(r.calls.some((call) => call.text === 'success-2'));
+  assertAnswerReplacedStatus(r, 2);
 });
 
 test('turn lifecycle: an aborted CLI session never replaces or creates the saved conversation', () => {
@@ -68,6 +85,7 @@ test('turn lifecycle: an aborted CLI session never replaces or creates the saved
     assert.equal(r.state.ccSessionId, scenario === 'saved-session' ? 'saved-session-A' : undefined);
     assert.equal(r.state.fixtureUnrelated, 'preserve-me');
     assert.equal(r.finalMessages[r.initialStatusId], stopped);
+    assert.ok(!r.calls.some((call) => /^success-1(?:\n|$)/.test(call.text)), 'Do not publish the late successful result after cancellation.');
   }
 });
 
@@ -78,5 +96,5 @@ test('turn lifecycle: newtask during the first turn prevents its late session ID
   assert.equal(r.state.ccSessionId, undefined);
   assert.equal(r.state.sessionEpoch, 1);
   assert.equal(r.state.fixtureUnrelated, 'preserve-me');
-  assert.ok(r.calls.some((call) => call.text === 'success-1'), 'A reset must not silently discard the completed answer.');
+  assertAnswerReplacedStatus(r, 1);
 });

@@ -60,7 +60,7 @@ export async function runAgentTurn({
         for (const part of ev.message?.content || []) {
           if (part.type === 'tool_use' && part.name) {
             lastTool = part.name;
-            onStatus?.({ kind: 'tool', name: part.name, input: summarizeInput(part.input) });
+            onStatus?.({ kind: 'tool', name: part.name, input: summarizeInput(part.input), rawInput: part.input });
           } else if (part.type === 'text' && part.text) {
             onStatus?.({ kind: 'text', preview: part.text.slice(0, 80) });
           } else if (part.type === 'thinking') {

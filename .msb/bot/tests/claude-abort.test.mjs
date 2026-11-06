@@ -51,6 +51,7 @@ test('cooperative abort clears escalation timers on close; no late signal can hi
 test('ordinary CLI success is unchanged and later abort sends no signals', async (t) => {
   const { result, calls } = await runFixture(t, 'success');
   assert.equal(result.text, 'REFERENCE_SUCCESS');
+  assert.equal(result.costUsd, 0.0123, 'Preserve measured CLI cost for the legacy footer.');
   assert.equal(result.sessionId, 'reference-success');
   assert.equal(result.isError, false);
   assert.equal(result.aborted, false);

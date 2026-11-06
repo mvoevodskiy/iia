@@ -173,6 +173,7 @@ export async function runClaudeTurn(opts) {
     let isError = false;
     let inputTokens = 0;
     let outputTokens = 0;
+    let costUsd;
     const toolsUsed = [];
     let toolCount = 0;
 
@@ -212,6 +213,7 @@ export async function runClaudeTurn(opts) {
             break;
           }
           case 'result':
+            if (Number.isFinite(ev.total_cost_usd) && ev.total_cost_usd >= 0) costUsd = ev.total_cost_usd;
             if (ev.session_id) sessionId = ev.session_id;
             if (ev.subtype) subtype = ev.subtype;
             if (typeof ev.is_error === 'boolean') isError = ev.is_error;
@@ -249,6 +251,7 @@ export async function runClaudeTurn(opts) {
         signal,
         aborted: Boolean(opts.signal?.aborted),
         usage: { inputTokens, outputTokens },
+        costUsd,
         toolsUsed,
         toolCount,
         stderr: stderr.slice(0, 4000),

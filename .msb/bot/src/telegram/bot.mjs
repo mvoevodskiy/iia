@@ -2,6 +2,8 @@ import { Bot } from 'grammy';
 import { autoRetry } from '@grammyjs/auto-retry';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { startTurnProgress } from './progress.mjs';
+import { deliverTurnResponse } from './response.mjs';
 import { runAgentTurn } from '../agent/turn.mjs';
 import { hasClaudeAuth, loadState, updateState } from '../state.mjs';
 import { addTask, tryParseScheduleMessage } from '../autonomy/store.mjs';
@@ -366,42 +368,29 @@ export function createBot(cfg) {
     const chatId = ctx.chat.id;
     const signal = turn.controller.signal;
     let status;
-    let edits = Promise.resolve();
-    let finishing = false;
-    const bump = (label) => {
-      edits = edits.then(async () => {
-        if (finishing || signal.aborted || !status) return;
-        await ctx.api.editMessageText(chatId, status.message_id, label);
-      }).catch(() => {});
-    };
+    let progress;
+    const startedAt = performance.now();
     const stopped = async () => {
       if (status) await ctx.api.editMessageText(chatId, status.message_id, 'Моя остановочка ✋🏽⛔️');
     };
     try {
-      status = await ctx.reply('Думаю ⏳');
+      const thread = ctx.message?.message_thread_id;
+      status = await ctx.reply('Думаю ⏳', thread && thread !== 1 ? { message_thread_id: thread } : {});
       if (signal.aborted) { await stopped(); return; }
-      const out = await runAgentTurn({
-        prompt: text, signal,
-        onStatus(ev) {
-          if (ev.kind === 'tool') bump(`🔧 ${ev.name}${ev.input ? `: ${ev.input}` : ''}`);
-          else if (ev.kind === 'thinking') bump('💭 Думаю…');
-          else if (ev.kind === 'init') bump(`🧠 ${ev.model || 'модель'}…`);
-        },
-      });
-      finishing = true;
-      await edits; // An already in-flight progress edit must finish before the terminal edit.
+      progress = startTurnProgress(ctx, status.message_id, { signal });
+      const out = await runAgentTurn({ prompt: text, signal, onStatus: ev => progress.onStatus(ev) });
+      await progress.stop();
       if (signal.aborted || out.error === 'aborted') { await stopped(); return; }
       turn.completed = true;
-      if (out.ok) await ctx.api.editMessageText(chatId, status.message_id, '✅').catch(() => {});
-      await replyChunked(ctx, out.text);
+      await deliverTurnResponse(ctx, status.message_id, out.text, out.ok ? {
+        elapsedMs: performance.now() - startedAt, costUsd: out.result?.costUsd, context: out.result?.context,
+      } : {});
     } catch (err) {
-      finishing = true;
-      await edits;
+      await progress?.stop();
       if (signal.aborted) await stopped().catch(() => {});
-      else { turn.completed = true; await ctx.reply(`Ошибка хода: ${err.message}`); }
+      else { turn.completed = true; await deliverTurnResponse(ctx, status?.message_id, `❌ Ошибка: ${String(err.message).slice(0, 300)}`, {}); }
     } finally {
-      finishing = true;
-      await edits;
+      await progress?.stop();
       turn.completed = true;
       if (running.get(chatId) === turn) running.delete(chatId);
     }
@@ -453,13 +442,6 @@ async function persistEnvKV(key, value) {
   await fs.writeFile(envPath, `${lines.join('\n')}\n`, { mode: 0o600 });
 }
 
-async function replyChunked(ctx, text) {
-  const limit = 4000;
-  const body = text || '';
-  for (let i = 0; i < body.length; i += limit) {
-    await ctx.reply(body.slice(i, i + limit));
-  }
-}
 
 function escapeHtml(s) {
   return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');

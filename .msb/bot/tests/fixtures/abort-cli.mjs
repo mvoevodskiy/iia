@@ -23,7 +23,7 @@ if (role === 'descendant') {
     emit({ type: 'system', subtype: 'init', session_id: 'reference-success' });
     emit({ type: 'assistant', message: { content: [{ type: 'text', text: 'REFERENCE_SUCCESS' }],
       usage: { input_tokens: 7, output_tokens: 3 } } });
-    emit({ type: 'result', subtype: 'success', is_error: false, session_id: 'reference-success' });
+    emit({ type: 'result', subtype: 'success', is_error: false, session_id: 'reference-success', total_cost_usd: 0.0123 });
     process.exit(0);
   }
   process.on('SIGINT', () => {
