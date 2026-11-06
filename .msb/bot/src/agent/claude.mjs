@@ -27,6 +27,7 @@ const PROMPT_FILE_THRESHOLD = 40 * 1024;
  * @property {string} [cwd]
  * @property {(ev: object) => void} [onEvent]
  * @property {boolean} [autonomy]
+ * @property {number} [maxTurns]
  */
 
 /**
@@ -35,7 +36,8 @@ const PROMPT_FILE_THRESHOLD = 40 * 1024;
 export async function runClaudeTurn(opts) {
   const cwd = opts.cwd || workspaceDir();
   const permissionMode = opts.permissionMode || 'bypassPermissions';
-  const maxTurns = opts.autonomy ? 50 : DEFAULT_MAX_TURNS;
+  const maxTurns = Number.isInteger(opts.maxTurns) && opts.maxTurns > 0
+    ? opts.maxTurns : (opts.autonomy ? 50 : DEFAULT_MAX_TURNS);
 
   const allowed =
     opts.allowedTools?.length > 0

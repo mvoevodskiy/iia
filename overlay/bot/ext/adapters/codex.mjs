@@ -5,11 +5,10 @@
 import os from 'node:os';
 import profile from '../../shared/profile.cjs';
 import { findBin, runCli } from './run-cli.mjs';
-import { readEnvKey } from '../env.mjs';
+import { codexChildEnvironment } from '../codex-auth-env.mjs';
 import { decodeExtSession, getSelectedModel, getSelectedEffort } from '../store.mjs';
 import { enrichPath, ensureProviderCli } from '../ensure-cli.mjs';
 import {
-  hasNativeCodexAuth,
   readCodexNativeConfig,
   resolveCodexModel,
   resolveCodexEffort,
@@ -244,10 +243,8 @@ export async function runCodexTurn({ prompt, parsed, cwd, env, home = os.homedir
     bin = ensured.bin;
   }
 
-  const access = await readEnvKey('CODEX_ACCESS_TOKEN', env, home);
-  const apiKey = await readEnvKey('OPENAI_API_KEY', env, home);
-  const nativeOk = await hasNativeCodexAuth(home);
-  if (!nativeOk && !access && !apiKey) {
+  const auth = await codexChildEnvironment(env, home);
+  if (!auth.configured) {
     return {
       ok: false,
       text:
@@ -277,9 +274,7 @@ export async function runCodexTurn({ prompt, parsed, cwd, env, home = os.homedir
   const model = resolveCodexModel(parsed?.model, nativeConfig, preferred);
   const effort = preferredEffort || resolveCodexEffort(nativeConfig);
 
-  const childEnv = { ...envPath };
-  if (!nativeOk && access) childEnv.CODEX_ACCESS_TOKEN = access;
-  if (!nativeOk && apiKey) childEnv.OPENAI_API_KEY = apiKey;
+  const childEnv = auth.env;
 
   const { resumeId: resumeRequested } = resolveResumeId(parsed);
 

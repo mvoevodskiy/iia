@@ -16,6 +16,13 @@ Telegram UI, progress и отправка ответа остаются в со�
 | Сформировать системный prompt из workspace | [`system-prompt.mjs`](system-prompt.mjs): `buildSystemPrompt` | [profile-ui](../../tests/profile-ui.test.mjs) проверяет runtime label; полнота содержимого workspace отдельно не проверяется |
 | Передать stream-события в progress и вернуть итог | [`runAgentTurn`](turn.mjs) → [`runClaudeTurn`](claude.mjs) | [voice-progress](../../tests/reference/voice-progress.test.mjs), [turn-lifecycle](../../tests/turn-lifecycle.test.mjs) |
 | Сохранить session ID после успешного хода, который не был отменён | [`runAgentTurn`](turn.mjs): guard по signal, session ID, `sessionEpoch`, `extAuthBypass`; [`updateState`](../state.mjs) | [turn-lifecycle](../../tests/turn-lifecycle.test.mjs), [state-concurrency](../../tests/state-concurrency.test.mjs) |
+| Сжать текущую сессию по провайдеру | [`compactSession`](compact.mjs) → Claude stream boundary или [Codex app-server](../../../../overlay/bot/ext/compact-codex.mjs) | [compact-routing](../../tests/compact-routing.test.mjs), [compact-codex](../../../../overlay/bot/ext/tests/compact-codex.test.mjs) |
+
+`/compact` удерживает chat lock и [`trySessionOperation`](session-operation.mjs)
+до завершения процесса; из-за этого фоновый scheduler откладывает готовую задачу
+до следующего тика. Claude и Codex требуют подтверждения завершения; другие CLI
+не получают чужую команду. `/undo` остаётся неподключённой: откат истории Codex
+и checkpoint Claude не равны прежней отмене последней файловой операции бота.
 
 ## Представление агента и контекст
 

@@ -12,6 +12,8 @@ import { startTurnProgress } from './progress.mjs';
 import { deliverTurnResponse } from './response.mjs';
 import { beginTurnHistory } from './history.mjs';
 import { runAgentTurn } from '../agent/turn.mjs';
+import { compactSession } from '../agent/compact.mjs';
+import { trySessionOperation } from '../agent/session-operation.mjs';
 import { hasClaudeAuth, loadState, updateState } from '../state.mjs';
 import { addTask, tryParseScheduleMessage } from '../autonomy/store.mjs';
 import { botRoot, ensureDir, workspaceDir } from '../paths.mjs';
@@ -159,7 +161,23 @@ export function createBot(cfg, { bot = new Bot(cfg.botToken), runTurn = runAgent
   });
 
   bot.command('compact', async (ctx) => {
-    await ctx.reply('Ручное сжатие через эту Telegram-команду пока не подключено. Сессию и файлы не менял.');
+    const chatId = ctx.chat.id;
+    if (stopping) return;
+    if (running.size) {
+      await ctx.reply('Уже работаю над предыдущим сообщением. /stop — прервать.');
+      return;
+    }
+    const release = trySessionOperation();
+    if (!release) {
+      await ctx.reply('⏳ Сейчас идёт фоновый ход — повтори /compact, когда освобожусь.');
+      return;
+    }
+    const turn = { controller: new AbortController(), completed: false, done: null, compacting: true };
+    running.set(chatId, turn);
+    unfinished.add(turn);
+    turn.done = executeCompact(ctx, turn, release).catch((err) => {
+      console.error('[msb/bot] compact delivery failed:', err.message);
+    }).finally(() => unfinished.delete(turn));
   });
 
   bot.command('undo', async (ctx) => {
@@ -457,7 +475,7 @@ export function createBot(cfg, { bot = new Bot(cfg.botToken), runTurn = runAgent
       return;
     }
 
-    if (running.has(chatId)) {
+    if (running.has(chatId) || [...running.values()].some((turn) => turn.compacting)) {
       await ctx.reply('Уже работаю над предыдущим сообщением. /stop — прервать.');
       return;
     }
@@ -477,6 +495,73 @@ export function createBot(cfg, { bot = new Bot(cfg.botToken), runTurn = runAgent
       console.error('[msb/bot] turn delivery failed:', err.message);
     }).finally(() => unfinished.delete(turn));
   });
+
+  async function executeCompact(ctx, turn, release) {
+    const chatId = ctx.chat.id;
+    const signal = turn.controller.signal;
+    let status, typing;
+    let typingBusy = false;
+    const typingAbort = new AbortController();
+    presentationSignal(typingAbort.signal);
+    const stopTyping = () => { clearInterval(typing); typingAbort.abort(); };
+    signal.addEventListener('abort', stopTyping, { once: true });
+    const reply = (text, abort = AbortSignal.timeout(15_000)) =>
+      ctx.reply(text, {}, presentationSignal(abort));
+    const edit = async (text) => {
+      if (status?.message_id) {
+        try {
+          await ctx.api.editMessageText(chatId, status.message_id, text, {}, presentationSignal(AbortSignal.timeout(15_000)));
+          return;
+        } catch { /* reply below */ }
+      }
+      await reply(text);
+    };
+    try {
+      const { state } = await loadState();
+      if (signal.aborted) return;
+      if (!state.ccSessionId && state.engine !== 'oc') {
+        await reply('Нет активной CC-сессии. Напиши что-нибудь сначала.');
+        return;
+      }
+      status = await reply('🗜️ Сжимаю контекст...', AbortSignal.any([signal, AbortSignal.timeout(15_000)]));
+      if (signal.aborted) { await edit('Моя остановочка ✋🏽⛔️'); return; }
+      const tick = () => {
+        if (typingBusy || typingAbort.signal.aborted) return;
+        typingBusy = true;
+        Promise.resolve().then(() => {
+          if (!typingAbort.signal.aborted) return ctx.api.sendChatAction(chatId, 'typing', {}, typingAbort.signal);
+        })
+          .catch(() => {}).finally(() => { typingBusy = false; });
+      };
+      tick();
+      typing = setInterval(tick, 4_000);
+      typing.unref?.();
+      const isCurrent = async () => {
+        const current = (await loadState()).state;
+        return current.ccSessionId === state.ccSessionId && current.engine === state.engine &&
+          current.extAuthBypass === state.extAuthBypass && (current.sessionEpoch || 0) === (state.sessionEpoch || 0);
+      };
+      const result = await compactSession(state, {
+        signal, isCurrent, compactProvider: bot[Symbol.for('msb.compactProvider')],
+      });
+      stopTyping();
+      if (!signal.aborted) turn.completed = true;
+      if (signal.aborted) await edit('Моя остановочка ✋🏽⛔️');
+      else if (result.aborted) await edit('Сессия или движок изменились; сжатие не запускалось.');
+      else if (result.ok) {
+        await edit(await isCurrent() ? '🗜️ Контекст успешно сжат. Жду команду.' : '🗜️ Контекст прежней сессии успешно сжат.');
+      } else await edit(`Не получилось сжать: ${result.error || 'действие не подтверждено'}`);
+    } catch {
+      if (signal.aborted) await edit('Моя остановочка ✋🏽⛔️').catch(() => {});
+      else await edit('Не получилось сжать: ошибка запуска.').catch(() => {});
+    } finally {
+      stopTyping();
+      signal.removeEventListener('abort', stopTyping);
+      turn.completed = true;
+      if (running.get(chatId) === turn) running.delete(chatId);
+      release();
+    }
+  }
 
   async function executeTurn(ctx, text, turn, voice = false) {
     const chatId = ctx.chat.id;
@@ -560,7 +645,7 @@ export function createBot(cfg, { bot = new Bot(cfg.botToken), runTurn = runAgent
     const { state } = await loadState();
     if (isSetupMode(state)) { await ctx.reply('Сначала подключи AI: /start'); return; }
     if (stopping) return;
-    if (running.has(ctx.chat.id)) { await ctx.reply('Уже работаю над предыдущим сообщением. /stop — прервать.'); return; }
+    if (running.has(ctx.chat.id) || [...running.values()].some((turn) => turn.compacting)) { await ctx.reply('Уже работаю над предыдущим сообщением. /stop — прервать.'); return; }
     const turn = { controller: new AbortController(), completed: false, done: null };
     running.set(ctx.chat.id, turn);
     unfinished.add(turn);
