@@ -3,7 +3,9 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { addSourceFromInput } from '../src/monitor/config.mjs';
+import { spawn } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+import { addSourceFromInput, loadMonitorConfig, saveMonitorConfig } from '../src/monitor/config.mjs';
 import { maybeSendDigest } from '../src/monitor/digest.mjs';
 import { pollAllSources } from '../src/monitor/poll.mjs';
 import { appendItems, loadMeta } from '../src/monitor/store.mjs';
@@ -79,4 +81,46 @@ test('a failed delivery does not mark the digest sent and releases the queue', a
   await assert.rejects(maybeSendDigest({ api: { sendMessage: async () => { throw Error('delivery failed'); } }, adminId: 42, env, log() {} }), /delivery failed/);
   assert.equal((await loadMeta(env)).lastDigestAt, null);
   assert.equal((await maybeSendDigest({ api: { sendMessage: async () => {} }, adminId: 42, env, log() {} })).sent, true);
+});
+
+test('different bot processes sharing a profile cannot send the scheduled digest twice', async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'monitor-process-race-'));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const env = { MSB_RUNTIME_ROOT: root };
+  await saveState({ timezone: 'UTC' }, env);
+  const cfg = await loadMonitorConfig(env);
+  cfg.digest.hour = new Date().getUTCHours();
+  await saveMonitorConfig(cfg, env);
+  await appendItems([{ id: 'fixture', title: 'fixture', publishedAt: new Date().toISOString() }], env);
+  const script = fileURLToPath(new URL('./fixtures/monitor-concurrent.mjs', import.meta.url));
+  const child = () => {
+    const proc = spawn(process.execPath, [script, root], { stdio: ['pipe', 'pipe', 'pipe'] });
+    let out = '', err = '';
+    proc.stdout.on('data', (chunk) => { out += chunk; });
+    proc.stderr.on('data', (chunk) => { err += chunk; });
+    const exit = new Promise((resolve, reject) => {
+      proc.once('error', reject);
+      proc.once('close', (code) => resolve({ code, err }));
+    });
+    t.after(() => proc.kill('SIGKILL'));
+    return { proc, exit, output: () => out };
+  };
+  const waitFor = async (c, marker) => {
+    const until = Date.now() + 5_000;
+    while (!c.output().includes(marker)) {
+      if (Date.now() > until) throw Error(`child did not reach ${marker}`);
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+  };
+  const first = child();
+  await waitFor(first, 'SENDING');
+  const second = child();
+  await new Promise((resolve) => setTimeout(resolve, 200));
+  assert.doesNotMatch(second.output(), /SENDING/, 'second process must wait for the first');
+  first.proc.stdin.end('release');
+  const [a, b] = await Promise.all([first.exit, second.exit]);
+  assert.equal(a.code, 0, a.err);
+  assert.equal(b.code, 0, b.err);
+  assert.match(first.output(), /RESULT:sent/);
+  assert.match(second.output(), /RESULT:already/);
 });

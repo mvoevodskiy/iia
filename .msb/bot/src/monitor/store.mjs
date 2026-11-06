@@ -2,6 +2,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { monitorDir } from './config.mjs';
+import { withFileLock } from '../../shared/file-lock.mjs';
 
 function itemsPath(env) {
   return path.join(monitorDir(env), 'items.jsonl');
@@ -26,16 +27,8 @@ export async function loadMeta(env = process.env) {
   }
 }
 
-const metaUpdates = globalThis[Symbol.for('msb.monitorMetaUpdates')] ||= new Map();
-
 function serializeMeta(env, operation) {
-  const file = metaPath(env);
-  const previous = metaUpdates.get(file) || Promise.resolve();
-  const update = previous.catch(() => {}).then(operation);
-  metaUpdates.set(file, update);
-  const release = () => { if (metaUpdates.get(file) === update) metaUpdates.delete(file); };
-  update.then(release, release);
-  return update;
+  return withFileLock(metaPath(env), operation);
 }
 
 async function writeMeta(meta, env) {
