@@ -181,7 +181,9 @@ export const RANGE_LABEL = { '24h': '24 ч', '7d': '7 дней', '30d': '30 дн
 
 /** '#/tasks/abc?range=7d' → { name: 'task', tab: 'tasks', id: 'abc', query: { range: '7d' } }. */
 export function parseRoute(hash) {
-  const raw = String(hash || '').replace(/^#/, '');
+  let raw = String(hash || '').replace(/^#/, '');
+  // A Telegram launch hash is metadata, not an application route.
+  if (/^tgWebApp(?:Data|Version|Platform|ThemeParams)=/.test(raw)) raw = '/';
   const [path, qs = ''] = raw.split('?');
   const query = {};
   for (const pair of qs.split('&')) {
