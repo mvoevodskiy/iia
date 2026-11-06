@@ -39,8 +39,15 @@ try {
   const diary = (await fs.readFile(path.join(root, 'chat-diary.jsonl'), 'utf8')).trim().split('\n').map(JSON.parse);
   // Block only the trace path: a journaling error must leave Telegram usable.
   await fs.rm(path.join(root, 'traces'), { recursive: true }); await fs.writeFile(path.join(root, 'traces'), 'blocked');
+  const append = fs.appendFile; let release, flushing = false, shutdownDone = false;
+  const gate = new Promise(resolve => { release = resolve; });
+  fs.appendFile = async (file, ...args) => { if (String(file).endsWith('/chat-diary.jsonl')) { flushing = true; await gate; } return append(file, ...args); };
   phase = 'log-failure'; const before = calls.length; await send();
   await until(() => calls.slice(before).some(c => c.text?.startsWith('model answer')));
-  await bot.stop().catch(() => {});
+  await until(() => flushing);
+  const shutdown = bot.stop().catch(() => {}).finally(() => { shutdownDone = true; });
+  await new Promise(resolve => setImmediate(resolve));
+  if (shutdownDone) throw Error('shutdown did not await journal');
+  release(); await shutdown; fs.appendFile = append;
   console.log('HISTORY_RESULT=' + JSON.stringify({ records, diary, calls }));
 } finally { await bot?.stop().catch(() => {}); await fs.rm(home, { recursive: true, force: true }); }

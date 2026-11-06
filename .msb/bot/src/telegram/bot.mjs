@@ -28,6 +28,8 @@ export function createBot(cfg, { bot = new Bot(cfg.botToken), runTurn = runAgent
 
   /** Active turns outlive the polling handler; keep ownership until delivery finishes. */
   const running = new Map();
+  // Includes completed deliveries whose journal is still flushing after chat unlock.
+  const unfinished = new Set();
   /** @type {Map<number, string>} */
   const pending = new Map();
 
@@ -37,7 +39,7 @@ export function createBot(cfg, { bot = new Bot(cfg.botToken), runTurn = runAgent
   const stopPolling = bot.stop.bind(bot);
   bot.stop = async () => {
     stopping = true;
-    const turns = [...running.values()];
+    const turns = [...unfinished];
     for (const turn of turns) if (!turn.completed) turn.controller.abort();
     try { await stopPolling(); }
     finally { await Promise.allSettled(turns.map((turn) => turn.done)); }
@@ -459,10 +461,11 @@ export function createBot(cfg, { bot = new Bot(cfg.botToken), runTurn = runAgent
     if (stopping) return;
     const turn = { controller: new AbortController(), completed: false, done: null };
     running.set(chatId, turn);
+    unfinished.add(turn);
     // Return to Grammy immediately, so the next getUpdates can deliver /stop.
     turn.done = executeTurn(ctx, text, turn).catch((err) => {
       console.error('[msb/bot] turn delivery failed:', err.message);
-    });
+    }).finally(() => unfinished.delete(turn));
   });
 
   async function executeTurn(ctx, text, turn, voice = false) {
@@ -550,8 +553,9 @@ export function createBot(cfg, { bot = new Bot(cfg.botToken), runTurn = runAgent
     if (running.has(ctx.chat.id)) { await ctx.reply('Уже работаю над предыдущим сообщением. /stop — прервать.'); return; }
     const turn = { controller: new AbortController(), completed: false, done: null };
     running.set(ctx.chat.id, turn);
+    unfinished.add(turn);
     // Speech never passes through pending text forms or fabricated Telegram updates.
-    turn.done = executeTurn(ctx, '', turn, true).catch(err => console.error('[msb/bot] voice delivery failed:', err.message));
+    turn.done = executeTurn(ctx, '', turn, true).catch(err => console.error('[msb/bot] voice delivery failed:', err.message)).finally(() => unfinished.delete(turn));
   });
 
   bot.on(['message:photo', 'message:video', 'message:document'], async (ctx) => {

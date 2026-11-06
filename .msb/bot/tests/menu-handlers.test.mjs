@@ -15,10 +15,12 @@ import { installUpdateHook } from '../../../overlay/bot/ext/install.mjs';
 async function fixture(t, runTurn = async () => ({ ok: true, text: 'fixture' }), { overlay = true } = {}) {
   const home = await fs.mkdtemp(path.join(os.tmpdir(), 'msb-menu-'));
   const previous = { ...process.env };
+  let bot;
   process.env.HOME = home; process.env.MSB_BOT_ID = 'default'; process.env.ADMIN_ID = '42';
   process.env.MSB_WORKSPACE_DIR = home;
   delete process.env.JARVIS_CC_ONLY;
   t.after(async () => {
+    await bot?.stop();
     for (const key of Object.keys(process.env)) if (!(key in previous)) delete process.env[key];
     Object.assign(process.env, previous);
     await fs.rm(home, { recursive: true, force: true });
@@ -50,8 +52,7 @@ async function fixture(t, runTurn = async () => ({ ok: true, text: 'fixture' }),
       return step(0);
     }
   }
-  const bot = createBot({ botToken: 'fake', botId: 'default', adminId: 42, workspace: home, timezone: 'Europe/Moscow' }, { bot: new Harness(), runTurn });
-  t.after(() => bot.stop());
+  bot = createBot({ botToken: 'fake', botId: 'default', adminId: 42, workspace: home, timezone: 'Europe/Moscow' }, { bot: new Harness(), runTurn });
   if (overlay) installUpdateHook(Harness, { ADMIN_ID: '42' });
   await saveState({ engine: 'cc', extAuthBypass: 'codex', ccSessionId: 'ext:codex:0199a213-81c0-7800-8aa1-bbab2a035a53', dailySpendLimit: 10 });
   const storeFile = path.join(home, '.msb/bots/default/ext-providers.json');
