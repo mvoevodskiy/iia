@@ -1,6 +1,7 @@
 import { loadMonitorConfig, updateMonitorConfig } from './config.mjs';
 import { listRecentItems, updateMeta } from './store.mjs';
 import { loadState } from '../state.mjs';
+import { botId } from '../paths.mjs';
 
 export async function buildDigestText(env = process.env) {
   const cfg = await loadMonitorConfig(env);
@@ -24,6 +25,8 @@ export async function maybeSendDigest({ api, adminId, force = false, env = proce
   if (!api || !adminId) return { sent: false, reason: 'no-api' };
   const cfg = await loadMonitorConfig(env);
   if (!cfg.digest?.enabled && !force) return { sent: false, reason: 'disabled' };
+  // Shared monitor storage: only the configured bot owns scheduled delivery.
+  if (!force && botId(env) !== (cfg.digest?.targetBotId || 'default')) return { sent: false, reason: 'not-target' };
 
   const hour = cfg.digest?.hour ?? 9;
   const { state } = await loadState(env);
