@@ -108,8 +108,8 @@ export async function listRecentItems({ limit = 50, sinceHours = 48 } = {}, env 
         const o = JSON.parse(lines[i]);
         const published = Date.parse(o.publishedAt);
         const saved = Date.parse(o.savedAt);
-        const t = Number.isFinite(published) ? published : (Number.isFinite(saved) ? saved : 0);
-        if (t && t < since) continue;
+        const t = Number.isFinite(published) ? published : saved;
+        if (!Number.isFinite(t) || t < since) continue;
         out.push({ item: o, timestamp: t, position: i });
       } catch {
         /* skip */

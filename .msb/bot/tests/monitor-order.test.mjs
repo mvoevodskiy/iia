@@ -30,6 +30,7 @@ test('recent items fall back to saved time, skip expired and malformed entries, 
     { id: 'earlier-tie', publishedAt: time(2) },
     { id: 'bad-published', publishedAt: 'invalid', savedAt: time(1) },
     { id: 'expired-fallback', savedAt: time(3_000) },
+    { id: 'undated', title: 'do not treat as recent' },
     { id: 'later-tie', publishedAt: time(2) },
   ];
   await fs.writeFile(path.join(dir, 'items.jsonl'), `${rows.map((row) => JSON.stringify(row)).join('\n')}\n{bad json\n`);
