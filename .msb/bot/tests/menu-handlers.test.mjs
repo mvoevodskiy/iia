@@ -334,3 +334,19 @@ test('help and attachment fallback do not claim that working voice is unavailabl
     assert.doesNotMatch(f.messages.at(-1), /голос/iu);
   }
 });
+
+// Old help described the legacy implementations; open-core handlers are explicit
+// about missing execution. The help must agree without hiding their commands.
+test('help distinguishes unimplemented undo, tunnel launch and autonomy history', async (t) => {
+  const f = await fixture(t, undefined, { overlay: false });
+  for (const command of ['/help', '/openclaw']) {
+    await f.message(command);
+    const help = f.messages.at(-1);
+    assert.match(help, /\/undo[^\n]*пока не подключен/iu);
+    assert.match(help, /\/connect[^\n]*инструкц/iu);
+    assert.match(help, /\/autostatus[^\n]*просмотр[^\n]*пока не подключ[её]н/iu);
+  }
+  await f.message('/undo'); assert.match(f.messages.at(-1), /пока не подключена/iu);
+  await f.message('/connect'); assert.match(f.messages.at(-1), /сама туннель не запускает/iu);
+  await f.message('/autostatus'); assert.match(f.messages.at(-1), /просмотр журнала[^\n]*пока не подключён/iu);
+});
