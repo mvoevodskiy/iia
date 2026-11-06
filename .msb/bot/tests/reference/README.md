@@ -109,3 +109,14 @@ overlay owner-check и Codex error/replay. Детали — voice-checkpoint.jso
 синтетические ключи; STT_COMMAND тестируется временными локальными скриптами.
 Валидность реального ключа/баланса Deepgram, качество распознавания настоящей
 записи и работа живого бота этим прогоном не подтверждены. JAR1 не изменён.
+
+Telegram delivery follow-up (JAR1 acceptance): presentation calls bypass the
+unbounded autoRetry queue, cancel on completion and respect retry_after before
+animating again. A rejected final edit/cleanup falls back to sending the answer;
+normal message sends retain retries. The legacy texts and layout are unchanged.
+`tests/presentation-retry.test.mjs` exercises real Grammy/autoRetry with fake HTTP
+and a deterministic clock: cooldown, a late response after abort, final fallback.
+All three assertions fail with MSB_PRESENTATION_LEGACY_RETRY=1 and pass normally.
+Core: 70 existing tests plus 3 new delivery tests PASS on macOS. This follow-up
+does not resolve the three standalone provider defects documented above; the
+JAR1 compatibility package preserves the already deployed provider fixes.

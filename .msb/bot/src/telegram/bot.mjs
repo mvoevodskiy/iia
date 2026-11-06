@@ -1,5 +1,6 @@
 import { Bot } from 'grammy';
 import { autoRetry } from '@grammyjs/auto-retry';
+import { presentationAwareRetry, presentationSignal } from './presentation-api.mjs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { recognizeVoice, voicePreview, STT_ONBOARDING } from './voice.mjs';
@@ -19,7 +20,7 @@ import { hubScreen, monitorScreen, setupScreen, settingsScreen } from './screens
  */
 export function createBot(cfg) {
   const bot = new Bot(cfg.botToken);
-  bot.api.config.use(autoRetry());
+  bot.api.config.use(presentationAwareRetry(autoRetry()));
 
   /** Active turns outlive the polling handler; keep ownership until delivery finishes. */
   const running = new Map();
@@ -374,7 +375,7 @@ export function createBot(cfg) {
     let transcribed = false;
     const startedAt = performance.now();
     const stopped = async () => {
-      if (status) await ctx.api.editMessageText(chatId, status.message_id, 'Моя остановочка ✋🏽⛔️');
+      if (status) await ctx.api.editMessageText(chatId, status.message_id, 'Моя остановочка ✋🏽⛔️', {}, presentationSignal(AbortSignal.timeout(15_000))).catch(() => {});
     };
     try {
       const thread = ctx.message?.message_thread_id;
@@ -409,7 +410,7 @@ export function createBot(cfg) {
       else {
         turn.completed = true;
         if (voice && err.code === 'STT_NOT_CONFIGURED') {
-          if (status) await ctx.api.deleteMessage(chatId, status.message_id).catch(() => {});
+          if (status) await ctx.api.deleteMessage(chatId, status.message_id, presentationSignal(AbortSignal.timeout(15_000))).catch(() => {});
           const thread = ctx.message?.message_thread_id;
           await ctx.reply(STT_ONBOARDING.text, { reply_markup: STT_ONBOARDING.reply_markup, ...(thread && thread !== 1 ? { message_thread_id: thread } : {}) });
         } else {
@@ -421,7 +422,7 @@ export function createBot(cfg) {
       }
     } finally {
       await progress?.stop();
-      if (transcription && !transcribed) await ctx.api.deleteMessage(chatId, transcription.message_id).catch(() => {});
+      if (transcription && !transcribed) await ctx.api.deleteMessage(chatId, transcription.message_id, presentationSignal(AbortSignal.timeout(15_000))).catch(() => {});
       turn.completed = true;
       if (running.get(chatId) === turn) running.delete(chatId);
     }

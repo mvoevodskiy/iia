@@ -1,3 +1,5 @@
+import { presentationSignal } from './presentation-api.mjs';
+
 /** Legacy OS thinking/typing presentation, independent of buffered CLI events. */
 const PREPARING = [['Думаю…', '⏳'], ['Думаю…', '⌛️'], ['Вникаю…', '👁️'], ['Мозгую…', '🧠'], ['Соображаю…', '🤔'], ['Анализирую…', '📡'], ['Формулирую…', '🧐']];
 const FRAMES = [['Думаю…', '⏳'], ['Думаю…', '⌛️'], ['Соображаю…', '🤔'], ['Мозгую…', '🧠'], ['Формулирую…', '🧐']];
@@ -73,6 +75,16 @@ export function startTurnProgress(ctx, messageId, { signal, preparing = false, n
   const thread = ctx.message?.message_thread_id;
   const topic = thread && thread !== 1 ? { message_thread_id: thread } : {};
   const typingAbort = new AbortController();
+  const editsAbort = new AbortController();
+  presentationSignal(typingAbort.signal);
+  presentationSignal(editsAbort.signal);
+  let pausedUntil = 0;
+  const pauseOnRateLimit = err => {
+    const seconds = err?.parameters?.retry_after;
+    if (err?.error_code === 429 && Number.isFinite(seconds) && seconds > 0) {
+      pausedUntil = Math.max(pausedUntil, now() + seconds * 1000);
+    }
+  };
   let stopped = false, frame = 0, lastEdit = -Infinity, lastText = '', tool = null;
   let pending = null, editing = false, edits = Promise.resolve(), typingPending = Promise.resolve(), typingBusy = false;
   let animationTimer, typingTimer, initialTimer;
@@ -82,14 +94,14 @@ export function startTurnProgress(ctx, messageId, { signal, preparing = false, n
     if (editing) return;
     editing = true;
     edits = (async () => {
-      while (!stopped && pending !== null) {
+      while (!stopped && pending !== null && now() >= pausedUntil) {
         const value = pending; pending = null;
-        try { await ctx.api.editMessageText(ctx.chat.id, messageId, value); } catch { /* best effort */ }
+        try { await ctx.api.editMessageText(ctx.chat.id, messageId, value, {}, editsAbort.signal); } catch (err) { pauseOnRateLimit(err); }
       }
     })().finally(() => { editing = false; });
   };
   const tick = () => {
-    if (stopped || signal?.aborted) return;
+    if (stopped || signal?.aborted || now() < pausedUntil) return;
     const elapsed = Math.max(0, now() - start);
     const interval = elapsed >= 900000 ? 30000 : elapsed >= 300000 ? 10000 : 2000;
     if ((!preparing || interval > 2000) && now() - lastEdit < interval - 250) return;
@@ -110,17 +122,18 @@ export function startTurnProgress(ctx, messageId, { signal, preparing = false, n
     lastEdit = now(); enqueue(text);
   };
   const typing = () => {
-    if (stopped || typingBusy) return;
+    if (stopped || typingBusy || now() < pausedUntil) return;
     typingBusy = true;
     typingPending = Promise.resolve().then(() => {
       if (!stopped) return ctx.api.sendChatAction(ctx.chat.id, 'typing', topic, typingAbort.signal);
-    }).catch(() => {}).finally(() => { typingBusy = false; });
+    }).catch(pauseOnRateLimit).finally(() => { typingBusy = false; });
   };
   const stop = () => {
     stopped = true; pending = null;
     timers.clearInterval(animationTimer); timers.clearInterval(typingTimer);
     if (initialTimer !== undefined) timers.clearTimeout(initialTimer);
-    typingAbort.abort(); signal?.removeEventListener('abort', stop);
+    // A best-effort animation must not hold the final reply behind an API retry.
+    editsAbort.abort(); typingAbort.abort(); signal?.removeEventListener('abort', stop);
     return Promise.allSettled([edits, typingPending]);
   };
   if (signal?.aborted) stop();

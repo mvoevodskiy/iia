@@ -1,3 +1,5 @@
+import { presentationSignal } from './presentation-api.mjs';
+
 // Compact final delivery from the old u4/$u/editFinal contract, without its
 // streaming/runtime machinery. Telemetry must be supplied by the caller.
 const LIMIT = 4000;
@@ -160,18 +162,18 @@ export async function deliverTurnResponse(ctx, statusId, text, telemetry = {}) {
   if (complete.length <= LIMIT) {
     if (statusId) {
       try {
-        await ctx.api.editMessageText(ctx.chat.id, statusId, complete, options(ctx, true, true));
+        await ctx.api.editMessageText(ctx.chat.id, statusId, complete, options(ctx, true, true), presentationSignal(AbortSignal.timeout(15_000)));
         return { method: 'edit', messages: 1 };
       } catch (err) {
         if (/not modified/i.test(String(err?.description || err?.message || err))) return { method: 'edit', messages: 1 };
       }
       // Only the bot's supplied status ID; never the incoming user message.
-      await ctx.api.deleteMessage(ctx.chat.id, statusId).catch(() => {});
+      await ctx.api.deleteMessage(ctx.chat.id, statusId, presentationSignal(AbortSignal.timeout(15_000))).catch(() => {});
     }
     await send(ctx, complete);
     return { method: 'send', messages: 1 };
   }
-  if (statusId) await ctx.api.deleteMessage(ctx.chat.id, statusId).catch(() => {});
+  if (statusId) await ctx.api.deleteMessage(ctx.chat.id, statusId, presentationSignal(AbortSignal.timeout(15_000))).catch(() => {});
   const chunks = splitHtml(body, LIMIT - footer.length);
   for (let i = 0; i < chunks.length; i++) await send(ctx, chunks[i] + (i === chunks.length - 1 ? footer : ''));
   return { method: 'send', messages: chunks.length };
