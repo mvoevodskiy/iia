@@ -18,6 +18,15 @@ Telegram UI, progress и отправка ответа остаются в со�
 | Сохранить session ID после успешного хода, который не был отменён | [`runAgentTurn`](turn.mjs): guard по signal, session ID, `sessionEpoch`, `extAuthBypass`; [`updateState`](../state.mjs) | [turn-lifecycle](../../tests/turn-lifecycle.test.mjs), [state-concurrency](../../tests/state-concurrency.test.mjs) |
 | Сжать текущую сессию по провайдеру | [`compactSession`](compact.mjs) → Claude stream boundary или [Codex app-server](../../../../overlay/bot/ext/compact-codex.mjs) | [compact-routing](../../tests/compact-routing.test.mjs), [compact-codex](../../../../overlay/bot/ext/tests/compact-codex.test.mjs) |
 
+Первый ход без ID атомарно резервирует `pendingCcSessionStarts[provider]` через
+[`session-starts`](../../shared/session-starts.mjs). Обычное переключение не отменяет
+этот внутренний token: поздний успешный ID сохраняется только в пустой собственный
+активный/припаркованный слот. Reset текущего провайдера удаляет token даже без ID;
+новая попытка заменяет его. Ошибка/abort/cleanup не удаляют token новой попытки.
+Для уже существующего ID прежняя проверка `sessionEpoch`/provider/session остаётся
+неизменной. [Сквозная регрессия](../../tests/first-session.test.mjs),
+[матрица резерваций](../../tests/session-starts.test.mjs).
+
 `/compact` удерживает chat lock и [`trySessionOperation`](session-operation.mjs)
 до завершения процесса; из-за этого фоновый scheduler откладывает готовую задачу
 до следующего тика. Claude и Codex требуют подтверждения завершения; другие CLI

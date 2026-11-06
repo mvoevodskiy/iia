@@ -6,6 +6,7 @@
  * Пишем в state.json authMode=subscription (+ маркер extAuthBypass), бандл не трогаем.
  */
 import os from 'node:os';
+import { invalidateFirstSession } from '../shared/session-starts.mjs';
 import { getProvider } from './providers.mjs';
 import { providerConfigured } from './env.mjs';
 import { loadStore } from './store.mjs';
@@ -75,7 +76,10 @@ export async function syncExtAuthGate(env = process.env, home = os.homedir(), { 
     // Never give Claude a foreign CLI session; restore its own if parked.
     if (provider.id === 'claude') {
       switchProviderSession(state, previousProvider, 'claude');
-    } else if (state.ccSessionId) delete state.ccSessionId;
+    } else {
+      invalidateFirstSession(state);
+      delete state.ccSessionId;
+    }
     delete state[EXT_AUTH_FLAG];
     if (!claudeOk && provider.id === 'claude') {
       if (state.authMode === 'subscription') delete state.authMode;

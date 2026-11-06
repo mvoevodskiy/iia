@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { loadState, saveState, updateState } from '../src/state.mjs';
+import { loadState, saveState, updateState, NO_STATE_WRITE } from '../src/state.mjs';
 
 async function fixture(t) {
   const home = await fs.mkdtemp(path.join(os.tmpdir(), 'msb-state-race-'));
@@ -41,4 +41,15 @@ test('failed state update releases the profile queue for the next command', asyn
   await assert.rejects(failed, /fixture failure/);
   await next;
   assert.equal((await loadState(env)).state.sessionEpoch, 1);
+});
+
+
+test('serialized snapshot opt-out leaves the stored profile bytes unchanged', async t => {
+  const env = await fixture(t);
+  const { file } = await loadState(env);
+  const raw = '{"fixture":"preserve exact bytes","ccSessionId":"existing"}';
+  await fs.writeFile(file, raw);
+  const state = await updateState(() => NO_STATE_WRITE, env);
+  assert.equal(state.ccSessionId, 'existing');
+  assert.equal(await fs.readFile(file, 'utf8'), raw);
 });

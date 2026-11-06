@@ -26,7 +26,9 @@ function run(scenario) {
   assert.equal(report.intervalsAfterStop, 0, 'No progress/typing interval may survive the drained stop.');
   assert.equal(new Set(report.history.map(row => row.turnId)).size, report.history.length, 'one terminal journal record per turn');
   assert.ok(report.history.every(row => ['ok', 'aborted', 'error'].includes(row.status)));
-  assert.ok(report.history.filter(row => row.status === 'ok').every(row => row.providerId === 'codex'));
+  for (const row of report.history.filter(row => row.status === 'ok')) {
+    assert.equal(row.providerId, report.cli.find(call => call.prompt === row.query)?.provider, 'History follows the actual selected CLI');
+  }
   return report;
 }
 

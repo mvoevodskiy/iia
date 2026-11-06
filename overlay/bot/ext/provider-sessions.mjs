@@ -6,18 +6,7 @@
  */
 import { decodeExtSession } from './store.mjs';
 import { isProviderId } from './providers.mjs';
-import { isValidCodexThreadId } from './codex-native.mjs';
-import { isCursorSessionId } from './adapters/cursor.mjs';
-
-function matchesProvider(sessionId, providerId) {
-  if (typeof sessionId !== 'string' || !sessionId.trim()) return false;
-  if (providerId === 'claude') return !sessionId.startsWith('ext:');
-  const decoded = decodeExtSession(sessionId);
-  if (!decoded || decoded.providerId !== providerId) return false;
-  if (providerId === 'codex') return isValidCodexThreadId(decoded.nativeId);
-  if (providerId === 'cursor') return isCursorSessionId(decoded.nativeId);
-  return !/^(norestart(?:-[a-z0-9]+)?|failed|error|unknown)$/i.test(decoded.nativeId);
-}
+import { isProviderSession as matchesProvider } from '../shared/session-starts.mjs';
 
 export function currentSessionProvider(state) {
   const decoded = decodeExtSession(state.ccSessionId);

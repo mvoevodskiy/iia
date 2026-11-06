@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
+import { invalidateFirstSession } from '../shared/session-starts.mjs';
 import { runAgentTurn } from '../src/agent/turn.mjs';
 import { saveState, loadState, updateState } from '../src/state.mjs';
 const id = '0199a213-81c0-7800-8aa1-bbab2a035a53';
@@ -31,7 +32,7 @@ process.stdin.resume();
 process.stdin.on('end', async () => {
  const fail=process.env.FIXTURE_CORE_MODE==='fail';
  const sid=fail?'ext:codex:norestart':'${sessionId}';
- emit({type:'system',subtype:'init',session_id:sid,model:'gpt-6.1-terra'});
+ emit({type:'system',subtype:'init',provider_id:'codex',apiKeySource:'ext',session_id:sid,model:'gpt-6.1-terra'});
  if(process.env.FIXTURE_CORE_MODE==='reset') {
   for(let i=0;i<100&&!fs.existsSync(process.env.FIXTURE_CORE_HOME+'/release');i++) await new Promise(r=>setTimeout(r,10));
  }
@@ -45,7 +46,7 @@ process.stdin.on('end', async () => {
   process.env.FIXTURE_CORE_MODE = 'reset';
   let reset;
   const resetResult = await runAgentTurn({ prompt: 'fixture', env, onStatus(ev) {
-    if (ev.kind === 'init') reset = updateState((s) => { delete s.ccSessionId; s.sessionEpoch = 1; return s; }, env)
+    if (ev.kind === 'init') reset = updateState((s) => { invalidateFirstSession(s); delete s.ccSessionId; s.sessionEpoch = 1; return s; }, env)
       .then(() => fs.writeFile(path.join(home, 'release'), 'ready'));
   } });
   await reset;

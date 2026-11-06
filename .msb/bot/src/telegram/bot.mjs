@@ -1,3 +1,4 @@
+import { invalidateFirstSession } from '../../shared/session-starts.mjs';
 /**
  * Сборка handlers, общих pending/running и жизненного цикла хода.
  * Навигация: [Telegram](./README.md) → [callbacks](./router.mjs), [voice](./voice.mjs).
@@ -144,6 +145,7 @@ export function createBot(cfg, { bot = new Bot(cfg.botToken), runTurn = runAgent
 
   bot.command('newtask', async (ctx) => {
     await updateState((s) => {
+      invalidateFirstSession(s);
       delete s.ccSessionId;
       s.sessionEpoch = (s.sessionEpoch || 0) + 1;
       return s;
@@ -153,6 +155,7 @@ export function createBot(cfg, { bot = new Bot(cfg.botToken), runTurn = runAgent
 
   bot.command('clear', async (ctx) => {
     await updateState((s) => {
+      invalidateFirstSession(s);
       delete s.ccSessionId;
       s.sessionEpoch = (s.sessionEpoch || 0) + 1;
       return s;

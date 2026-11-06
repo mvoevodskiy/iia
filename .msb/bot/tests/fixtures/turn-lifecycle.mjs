@@ -100,6 +100,7 @@ try {
     const child = new EventEmitter();
     child.stdin = new PassThrough(); child.stdout = new PassThrough(); child.stderr = new PassThrough();
     const record = { number, args, prompt: '', provider: options.env.MSB_TURN_PROVIDER, statusMessageId: report.statusIds.at(-1) };
+    const nativeId = record.provider === 'codex' ? `ext:codex:0199a213-81c0-7800-8aa1-bbab2a035a5${number}` : `new-session-B-${number}`;
     report.cli.push(record);
     report.events.push(`cli-start:${number}`);
     activeChildren++;
@@ -111,7 +112,7 @@ try {
       closed = true;
       if (mode !== 'abort') {
         if (mode === 'late-result') report.events.push(`cli-late-result:${number}`);
-        emit({ type: 'result', session_id: `new-session-B-${number}`, result: `success-${number}`, is_error: false });
+        emit({ type: 'result', session_id: nativeId, result: `success-${number}`, is_error: false });
       }
       report.events.push(`cli-close:${number}`);
       activeChildren--;
@@ -125,8 +126,8 @@ try {
     child.stdin.setEncoding('utf8');
     child.stdin.on('data', (text) => { record.prompt += text; });
     child.stdin.on('end', () => {
-      emit({ type: 'system', subtype: 'provider', provider_id: 'codex' });
-      emit({ type: 'system', subtype: 'init', session_id: `new-session-B-${number}`, model: 'fixture-model' });
+      emit({ type: 'system', subtype: 'provider', provider_id: record.provider });
+      emit({ type: 'system', subtype: 'init', session_id: nativeId, model: 'fixture-model' });
       report.events.push(`cli-init:${number}`);
     });
     children.push({ close });
