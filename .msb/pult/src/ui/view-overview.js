@@ -202,9 +202,10 @@ function serverSec(ctx) {
 function subsSec(s, now) {
   const rows = [];
   const problems = [];
-  const sub = subscriptionInfo(s.subscription, now);
-  if (sub) {
-    const li = h('li', null, h('span', { class: 'k' }, 'Окно подписки'),
+  for (const quota of s.subscriptions ?? (s.subscription ? [s.subscription] : [])) {
+    const sub = subscriptionInfo(quota, now);
+    if (!sub) continue;
+    const li = h('li', null, h('span', { class: 'k' }, quota.providerId === 'codex' ? 'Codex · подписка' : quota.providerId === 'claude' ? 'Claude · подписка' : 'Окно подписки'),
       h('span', { class: `v ${sub.stale ? 'muted' : sub.level === 'crit' ? 'red' : sub.level === 'warn' ? 'amber' : 'ink2'}` }, sub.text));
     rows.push(li);
     if (sub.stale || sub.level === 'crit' || sub.level === 'warn') problems.push(li);

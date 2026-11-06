@@ -10,6 +10,7 @@
 
 | Задача | Модуль → подмодуль | Конечная точка / проверка |
 |---|---|---|
+| История запросов и квоты в Пульте | [Пульт → История и провайдеры](pult-telemetry.md) | общий journal, Claude state, Codex account RPC; telemetry tests |
 | Изменить кнопку или переход настроек | [Telegram → Настройки и кнопки](../.msb/bot/src/telegram/README.md#настройки-и-кнопки) | `settingsScreen`, `handleCallback`; UI и engine-menu tests |
 | Разобраться с голосовым | [Telegram → Голос](../.msb/bot/src/telegram/README.md#голос) | `recognizeVoice` → `transcribeVoice`; voice/STT tests |
 | Исправить stop, индикацию или итоговый ответ | [Telegram → Жизненный цикл хода](../.msb/bot/src/telegram/README.md#жизненный-цикл-хода) | `executeTurn`, progress, response; lifecycle/reference tests |
