@@ -192,6 +192,7 @@ export function extrasScreen() {
 🌐 <b>SSH доступ к серверу</b> — ключи, файрвол, прямое подключение.
 ♻️ <b>Перезапустить бота</b> — нужен после обновления кода.
 🎤 <b>Расшифровка голоса</b> — Deepgram (облако, $200 в подарок).
+🖥 <b>Пульт</b> — веб-панель ботов, задач и сервера (выкл по умолчанию).
 📦 <b>Обновления</b> — свой канал (не vendor создателя).
 💾 <b>Хранилище мониторинга</b> — в Мониторинг → ⚙️ Настройки.`,
     keyboard: new InlineKeyboard()
@@ -201,9 +202,92 @@ export function extrasScreen() {
       .row()
       .text('🎤 Расшифровка голоса: Deepgram', 'settings:stt')
       .row()
+      .text('🖥 Пульт', 'settings:pult')
+      .row()
       .text('📦 Обновления', 'settings:updates')
       .row()
       .text('« Назад', 'settings:back'),
+  };
+}
+
+/**
+ * Раздел настроек Пульта: пароль, вкл/выкл, IP прослушивания, опц. бот тревог.
+ * @param {object|null} pultSnap — блок pult из msb-engine
+ * @param {object} cfg — { password, host, tgToken, publicUrl }
+ * @param {string} note
+ */
+export function pultScreen(pultSnap = null, cfg = {}, note = '') {
+  const p = pultSnap || {};
+  const installed = p.installed === true;
+  const on = p.enabled === true;
+  const active = p.active === true;
+  let status;
+  if (!installed) status = 'код не найден (~/.msb/pult) — переустанови ядро';
+  else if (on && active) status = 'включён, службы работают';
+  else if (on) status = 'включён, но службы не active — journalctl -u pult-web';
+  else status = 'выключен';
+
+  const password = cfg.password ? 'задан' : 'не задан';
+  const host = cfg.host || '127.0.0.1';
+  const hostLabel =
+    host === '0.0.0.0' || host === '::'
+      ? 'все интерфейсы (0.0.0.0)'
+      : host === '127.0.0.1' || host === '::1'
+        ? 'только localhost'
+        : host;
+  const tg = cfg.tgToken ? 'задан' : 'нет (необязателен)';
+  const url = cfg.publicUrl || process.env.PULT_PUBLIC_URL || 'http://127.0.0.1:8791';
+  const sessionHours = Number(cfg.sessionHours) > 0 ? Number(cfg.sessionHours) : 4;
+
+  const kb = new InlineKeyboard();
+  if (installed) {
+    if (on) kb.text('⏸ Выключить', 'settings:pult:off').row();
+    else kb.text('▶️ Включить', 'settings:pult:on').row();
+  }
+  kb.text('🔑 Пароль', 'settings:pult:password').row();
+  kb.text('🌐 Адрес прослушивания', 'settings:pult:listen').row();
+  kb.text(`⏱ Сессия: ${sessionHours} ч`, 'settings:pult:session').row();
+  kb.text('🤖 Бот тревог (опц.)', 'settings:pult:tg-token').row();
+  kb.text('🔗 Публичный URL', 'settings:pult:url').row();
+  kb.text('🔄 Обновить', 'settings:pult').row();
+  kb.text('« Назад', 'settings:extras');
+
+  return {
+    text: `<b>🖥 Пульт</b>
+
+Веб-панель ботов, задач и сервера. Открывается командой <code>/pult</code> из любого бота.
+Mini App — вход по подписи Telegram; веб-ссылка — одноразовая (билет сгорает при любом переходе).
+
+Статус: <b>${escapeHtml(status)}</b>
+Пароль: <b>${escapeHtml(password)}</b>
+Слушает: <b>${escapeHtml(hostLabel)}</b> (<code>${escapeHtml(host)}</code>)
+Сессия браузера: <b>${sessionHours} ч</b>
+Бот тревог/сводки: <b>${escapeHtml(tg)}</b>
+Публичный URL: <code>${escapeHtml(url)}</code>
+${note ? `\n${note}` : ''}
+${BLANK}`,
+    keyboard: kb,
+  };
+}
+
+export function pultListenScreen(currentHost = '127.0.0.1') {
+  return {
+    text: `<b>🌐 Адрес прослушивания Пульта</b>
+
+Сейчас: <code>${escapeHtml(currentHost)}</code>
+
+• <b>localhost</b> — только с этой машины
+• <b>все интерфейсы</b> — LAN / nginx на том же хосте
+• <b>свой IP</b> — конкретный адрес сетевого интерфейса
+${BLANK}`,
+    keyboard: new InlineKeyboard()
+      .text('🔒 localhost', 'settings:pult:listen:set:127.0.0.1')
+      .row()
+      .text('🌐 Все (0.0.0.0)', 'settings:pult:listen:set:0.0.0.0')
+      .row()
+      .text('✏️ Свой IP', 'settings:pult:listen:custom')
+      .row()
+      .text('« Назад', 'settings:pult'),
   };
 }
 

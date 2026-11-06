@@ -27,6 +27,11 @@ export const QUICK_KEYS = [
   { key: 'PROXYAPI_KEY', label: 'ProxyAPI' },
   { key: 'CLAUDE_CODE_OAUTH_TOKEN', label: 'Claude setup-token' },
   { key: 'ANTHROPIC_API_KEY', label: 'Anthropic API key' },
+  { key: 'PULT_PASSWORD', label: 'Пульт: пароль входа' },
+  { key: 'PULT_PUBLIC_URL', label: 'Пульт: публичный URL' },
+  { key: 'PULT_HOST', label: 'Пульт: адрес прослушивания' },
+  { key: 'PULT_SESSION_HOURS', label: 'Пульт: срок сессии (часы)' },
+  { key: 'PULT_TG_TOKEN', label: 'Пульт: бот тревог (опц.)' },
 ];
 
 export function envFilePath(env = process.env) {

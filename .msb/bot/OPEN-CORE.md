@@ -49,6 +49,7 @@ systemd / bootstrap: `ExecStart=…/bot/run.mjs` (или `index.js`).
 - **Обновления**: только свой канал `MSB_OWN_UPDATES_URL` (apply — позже); vendor отключён
 - Ход агента Claude CLI, автономка, heartbeat
 - **OS-обвязка**: `msb-engine` (IPC `~/.msb/engine/request`, state `/run/msb-engine/state.json`); см. `docs/tdr/msb-engine-os-replace.md`
+- **Пульт** (`.msb/pult/`): веб-панель ботов/задач/сервера; юниты ставятся bootstrap’ом, **выкл** до `/settings` → Системные → Пульт (`enable-pult` / `disable-pult`)
 
 ## Обновления
 

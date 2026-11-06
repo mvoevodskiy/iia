@@ -12,6 +12,9 @@ ACTIONS = (
     "enable-openclaw",
     "disable-openclaw",
     "update-openclaw",
+    "enable-pult",
+    "disable-pult",
+    "reload-pult",
 )
 
 SOURCE_ACTIONS = {
@@ -28,6 +31,9 @@ REQUEST_KEYS = {
     "enable-openclaw": ("bot_id",),
     "disable-openclaw": ("bot_id",),
     "update-openclaw": ("bot_id",),
+    "enable-pult": ("bot_id",),
+    "disable-pult": ("bot_id",),
+    "reload-pult": ("bot_id",),
 }
 
 REQUIRED_KEYS = {

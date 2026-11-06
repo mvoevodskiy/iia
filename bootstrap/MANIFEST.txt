@@ -13,6 +13,7 @@ SOURCE → TARGET
 .msb/templates/           → /home/client/.msb/templates/
 .msb/engine-kit/          → /home/client/.msb/engine-kit/
 .msb/monitor/             → /home/client/.msb/monitor/      # пустой каркас
+.msb/pult/                → /home/client/.msb/pult/         # Пульт (веб+сборщик); службы выкл
 .msb/*.md                 → /home/client/.msb/
 
 bootstrap/workspace-seed/ → /home/client/workspace/   # ТОЛЬКО seed
@@ -33,6 +34,8 @@ systemd/msb-sync.* (+ drop-ins)
 systemd/msb-tick@.service + msb-tick-puller.timer
 systemd/msb-pull-now.*
 systemd/msb-engine.path/.service + msb-engine-tick.*
+systemd/pult-web.service + pult-collector.service + pult-notify-failure@.service
+  # юниты на диске, enable — только /settings → Пульт (нужен PULT_PASSWORD)
 systemd/drop-ins/system-msb-bot.slice.d/
 etc/msb-tick/puller.conf  → /etc/msb-tick/puller.conf
 etc/sudoers.d/{msb-admin,agent-client,msb-tick,msb-engine}

@@ -182,7 +182,7 @@ def way_back(o):
     )
 
 
-def available_actions(j, o):
+def available_actions(j, o, p=None):
     acts = ["status"]
     if o["installed"]:
         acts.append("disable-openclaw" if o["enabled"] else "enable-openclaw")
@@ -196,13 +196,38 @@ def available_actions(j, o):
             for b in j["bots"]
         ):
             acts.append("enable-msb")
+    if p and p.get("installed"):
+        acts.append("disable-pult" if p.get("enabled") else "enable-pult")
     return {s: [a for a in acts if a in SOURCE_ACTIONS[s]] for s, _, _ in SOURCES}
+
+
+def pult_info():
+    """Статус модуля Пульт (без импорта actions — иначе цикл state↔actions)."""
+    root = os.path.join(CLIENT_HOME, ".msb", "pult")
+    off = os.path.join(STATE_DIR, "pult.off")
+    units = ("pult-web.service", "pult-collector.service")
+    installed = os.path.isfile(os.path.join(root, "package.json")) and os.path.isfile(
+        "/etc/systemd/system/pult-web.service"
+    )
+    active = all(systemctl_word("is-active", u) == "active" for u in units) if installed else False
+    enabled_unit = any(
+        systemctl_word("is-enabled", u) in ("enabled", "enabled-runtime") for u in units
+    )
+    enabled = installed and enabled_unit and not os.path.lexists(off)
+    return {
+        "installed": installed,
+        "enabled": enabled,
+        "active": active,
+        "units": list(units),
+        "root": root,
+    }
 
 
 def compute_state():
     d = disk()
     j = jarvis_info()
     o = openclaw_info()
+    p = pult_info()
     return {
         "v": 1,
         "helper_version": HELPER_VERSION,
@@ -211,13 +236,14 @@ def compute_state():
         "managed": True,
         "hold": False,
         "host_ready": True,
-        "actions": available_actions(j, o),
+        "actions": available_actions(j, o, p),
         "codes": list(CODES),
         # `jarvis` — совместимое имя блока MSB-ботов (контракт UI/старых экранов).
         # `msb` — канонический алиас без бренда создателя.
         "jarvis": j,
         "msb": j,
         "openclaw": o,
+        "pult": p,
         "way_back": way_back(o),
         "updates": {"auto": False},
         "openclaw_update": None,

@@ -80,6 +80,15 @@ fi
 [[ -d "$PROJECTS" ]] && ok "projects (пусто — норма)" || bad "projects"
 [[ -e "$WORKSPACE/ops/pult" ]] && bad "workspace/ops/pult не должен быть на чистой установке" || ok "нет ops/pult"
 
+[[ -f "$MSB_HOME/pult/package.json" ]] && ok "модуль Пульт (~/.msb/pult)" || bad "нет ~/.msb/pult"
+[[ -f /etc/systemd/system/pult-web.service ]] && ok "unit pult-web (выкл по умолчанию)" || bad "unit pult-web"
+[[ -f /etc/systemd/system/pult-collector.service ]] && ok "unit pult-collector" || bad "unit pult-collector"
+if systemctl is-enabled pult-web.service >/dev/null 2>&1; then
+  info "pult-web enabled — норма, если включили из /settings"
+else
+  ok "pult-web не enabled (сток)"
+fi
+
 [[ -f /etc/systemd/system/msb-bot@.service ]] && ok "unit msb-bot@" || bad "unit msb-bot@"
 [[ -f /etc/systemd/system/msb-sync.timer ]] && ok "unit msb-sync.timer" || bad "msb-sync.timer"
 [[ -f /etc/systemd/system/msb-backup.service ]] && bad "msb-backup не должен ставиться ядром" || ok "нет msb-backup"

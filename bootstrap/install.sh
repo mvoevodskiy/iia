@@ -217,6 +217,15 @@ install_node_deps() {
   log "playwright chromium (для агента)"
   su -s /bin/bash -c "cd '$MSB_HOME/bot' && npx playwright install --with-deps chromium" "$CLIENT_USER" \
     || warn "playwright install не удался — бот без браузера; при необходимости повтори вручную"
+
+  # Пульт в коробке (выкл): TypeScript нужен в runtime (node запускает .ts напрямую).
+  if [[ -f "$MSB_HOME/pult/package-lock.json" ]]; then
+    log "npm ci в $MSB_HOME/pult (модуль Пульт, службы выкл)"
+    su -s /bin/bash -c "cd '$MSB_HOME/pult' && npm ci --include=dev" "$CLIENT_USER" \
+      || warn "npm ci Пульта не удался — включение из настроек упадёт, пока не поставишь зависимости"
+  else
+    warn "нет $MSB_HOME/pult — модуль Пульт не скопирован"
+  fi
 }
 
 # ─── 5. bin / sbin ────────────────────────────────────────────────────────────
@@ -350,6 +359,10 @@ CORE_UNITS=(
   msb-engine.service
   msb-engine-tick.timer
   msb-engine-tick.service
+  # Пульт: юниты ставятся, автозапуск — только из /settings → Пульт
+  pult-web.service
+  pult-collector.service
+  pult-notify-failure@.service
 )
 # НЕ ставим: jarvis-engine*, msb-base-pulse* (закрытый OS создателя снят).
 

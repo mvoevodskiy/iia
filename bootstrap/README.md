@@ -56,6 +56,7 @@ systemd ядра + `msb-engine` + узкий sudoers + bind workspace→`bots/<i
 Тулзы: `PROXYAPI_KEY`, `DEEPGRAM_API_KEY`, …
 
 Установка **откажется**, если в env-файлах есть продуктовые префиксы (`PULT_*`, `SOCPUB_*`, …).
+Код Пульта (`.msb/pult/`) ставится всегда; службы и `PULT_*` — только после включения в `/settings`.
 
 ## Не входит
 

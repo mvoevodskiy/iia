@@ -11,6 +11,7 @@ export const BOT_COMMANDS = [
   { command: 'connect', description: 'VS Code туннель' },
   { command: 'recovery', description: 'Аварийный доступ к серверу' },
   { command: 'settings', description: 'Настройки' },
+  { command: 'pult', description: 'Пульт — панель ботов и сервера' },
   { command: 'status', description: 'Статус системы' },
   { command: 'cost', description: 'Расходы за день' },
   { command: 'monitor', description: 'Статус мониторинга' },
@@ -48,6 +49,7 @@ export const HELP_CC = `<b>Как работать</b>
 /sessions — список сессий
 
 <b>Подключение и доступ:</b>
+/pult — панель ботов и сервера (Mini App + ссылка)
 /connect — VS Code через туннель
 /recovery — аварийный доступ к серверу
 /settings — подключения, ключи, SSH, лимиты
@@ -88,6 +90,7 @@ export const HELP_OC = `<b>Как работать</b>
 /sessions — список сессий
 
 <b>Подключение и доступ:</b>
+/pult — панель ботов и сервера (Mini App + ссылка)
 /connect — VS Code через туннель
 /recovery — аварийный доступ к серверу
 /settings — подключения, ключи, SSH, лимиты

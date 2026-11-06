@@ -51,8 +51,15 @@ Drop-in `60-ext-entry.conf` переключает `ExecStart` на `run.mjs`. �
 
 См. [bootstrap/UPDATE-POLICY.md](bootstrap/UPDATE-POLICY.md): код бота можно заменять; workspace и `.env` владельца — нет.
 
+## Пульт (в коробке, выкл)
+
+Код: `.msb/pult/` (канон — `msb-pult`, sync: `./scripts/sync-pult.sh`).
+Юниты `pult-web` / `pult-collector` ставятся, но не стартуют.
+Включение: `/settings` → Системные → Пульт (нужен `PULT_PASSWORD` в переменных окружения бота).
+
 ## Что не входит
 
 - Продуктовые проекты и секреты владельца
 - Боевой `workspace/`, дневники чатов, skeleton’ы живых ботов
 - OpenClaw / R2-backup (отдельные опции платформы)
+- Секреты Пульта в чистом bootstrap env (`PULT_*` — только после включения владельцем)
