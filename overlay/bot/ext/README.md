@@ -39,12 +39,17 @@ Owner-check выполняется в [`installUpdateHook`](integration/update-h
 | Применить модель/effort в store и native config | [`apply-model.mjs`](apply-model.mjs): `applyProviderModel`, `applyProviderEffort` | [apply-model](tests/apply-model.test.mjs) |
 | Сохранить UI-режим прав | [`integration/actions.mjs`](integration/actions.mjs): `writeBotPermissionMode`; совместимый реэкспорт из [`menu.mjs`](menu.mjs) | [menu-handlers](../../../.msb/bot/tests/menu-handlers.test.mjs) проверяет сохранение native Codex session |
 | Согласовать provider с auth gate ядра | [`setup-bypass.mjs`](setup-bypass.mjs): `syncExtAuthGate`; [`state-update.mjs`](state-update.mjs): `updateBotState` | [setup-bypass](tests/setup-bypass.test.mjs), [engine-menu](tests/reference/engine-menu.test.mjs) |
+| Сохранить отдельные беседы при смене CLI | [`provider-sessions.mjs`](provider-sessions.mjs): `switchProviderSession` в общей транзакции state | [provider-sessions](tests/provider-sessions.test.mjs), [turn-lifecycle](../../../.msb/bot/tests/turn-lifecycle.test.mjs) |
 
 Основной provider store — `<root>/bots/<id>/ext-providers.json`;
 `<root>` выбирает [shared profile](../../../.msb/bot/shared/README.md). Core-профиль
-`state.json` и native Codex config имеют отдельные роли. Повторный выбор Codex
-проверяется на сохранение session/model/effort. Смена провайдера может убрать
-чужой `ccSessionId`; правила определяет auth gate, а не renderer меню.
+`state.json` и native Codex config имеют отдельные роли. Активная беседа остаётся
+в `ccSessionId`; при выборе другого CLI её ID временно хранится в
+`parkedCcSessions` того же state, а ID выбранного CLI возвращается в `ccSessionId`.
+`ext-providers.json` хранит последние наблюдавшиеся native ID как метаданные и не
+используется для автоматического возобновления после `/newtask` или `/clear`.
+Смена провайдера увеличивает `sessionEpoch`, чтобы поздний ответ старого хода не
+заменил текущую сессию. Повторный выбор того же provider не переключает беседу.
 
 ## Исполнение CLI
 

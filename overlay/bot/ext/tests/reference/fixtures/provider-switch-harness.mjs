@@ -226,10 +226,16 @@ if (engineMenuScenario) {
   const foreign = await runShim(['-p', '--resume', session, '--model', 'sonnet']);
   const own = await runShim(['-p', '--resume', 'reference-claude-session', '--model', 'sonnet']);
   const claudeCalls = (await trace()).filter((entry) => entry.name === 'claude');
+  await f.callback('ext:conn:set:codex');
+  const returnedCodexState = await readJSON(stateFile);
+  const returnedCodexStore = await readJSON(storeFile);
   result = { firstProvider: codexStore.active, firstMarker: codexState.extAuthBypass,
     oldClaudeSessionCleared: !codexState.ccSessionId,
     finalProvider: claudeStore.active, finalMarkerRemoved: !claudeState.extAuthBypass,
-    foreignSessionCleared: !claudeState.ccSessionId,
+    foreignSessionCleared: claudeState.ccSessionId !== session,
+    claudeSessionRestored: claudeState.ccSessionId === 'reference-claude-session',
+    codexSessionRestored: returnedCodexState.ccSessionId === session,
+    returnedProvider: returnedCodexStore.active,
     nativeAuthUnchanged: await fs.readFile(authFile, 'utf8') === nativeAuth,
     claudeAuthUnchanged: process.env.CLAUDE_CODE_OAUTH_TOKEN === originalClaudeAuth,
     foreignCode: foreign.code, ownCode: own.code,

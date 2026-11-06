@@ -28,6 +28,7 @@ test('reference: successful Claude↔Codex switches preserve auth and strip only
   assert.deepEqual(result, {
     firstProvider: 'codex', firstMarker: 'codex', oldClaudeSessionCleared: true,
     finalProvider: 'claude', finalMarkerRemoved: true, foreignSessionCleared: true,
+    claudeSessionRestored: true, codexSessionRestored: true, returnedProvider: 'codex',
     nativeAuthUnchanged: true, claudeAuthUnchanged: true, foreignCode: 0, ownCode: 0,
     forwarded: [
       { argv: ['-p', '--model', 'sonnet'], stdin: 'reference prompt' },

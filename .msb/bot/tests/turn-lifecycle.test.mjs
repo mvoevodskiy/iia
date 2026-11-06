@@ -102,3 +102,29 @@ test('turn lifecycle: newtask during the first turn prevents its late session ID
   assert.equal(r.state.fixtureUnrelated, 'preserve-me');
   assertAnswerReplacedStatus(r, 1);
 });
+
+test('turn lifecycle: a late turn cannot replace the session after switching away and back', () => {
+  const r = run('provider-roundtrip');
+  assert.ok(r.events.indexOf('provider-roundtrip-completed') < r.events.indexOf('cli-late-result:1'));
+  assert.equal(r.state.ccSessionId, 'ext:codex:0199a213-81c0-7800-8aa1-bbab2a035a53');
+  assert.equal(r.state.parkedCcSessions.claude, 'saved-claude-session');
+  assert.equal(r.state.sessionEpoch, 2);
+});
+
+test('turn lifecycle: /newtask stays reset across provider switches and a late turn', () => {
+  const r = run('provider-reset');
+  assert.ok(r.events.includes('reset-acknowledged'));
+  assert.ok(r.events.indexOf('provider-roundtrip-completed') < r.events.indexOf('cli-late-result:1'));
+  assert.equal(r.state.ccSessionId, undefined);
+  assert.equal(r.state.parkedCcSessions.claude, 'saved-claude-session');
+  assert.equal(r.state.sessionEpoch, 3);
+});
+
+test('turn lifecycle: /clear stays reset across provider switches and a late turn', () => {
+  const r = run('provider-clear');
+  assert.ok(r.events.includes('reset-acknowledged'));
+  assert.ok(r.events.indexOf('provider-roundtrip-completed') < r.events.indexOf('cli-late-result:1'));
+  assert.equal(r.state.ccSessionId, undefined);
+  assert.equal(r.state.parkedCcSessions.claude, 'saved-claude-session');
+  assert.equal(r.state.sessionEpoch, 3);
+});
