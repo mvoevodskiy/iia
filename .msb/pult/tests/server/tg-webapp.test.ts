@@ -16,17 +16,23 @@ function signInitData(botToken: string, fields: Record<string, string>): string 
   return params.toString();
 }
 
-const BOT = '5768337691:AAH5YkoiEuPk8-FZa32hStHTqXiLPtAEhx8';
-const OWNER = '279058397';
+/** Синтетический токен/owner — не из доки и не боевой. */
+const BOT = '999001:' + 'B'.repeat(35);
+const OWNER = '100500';
 
-test('подпись initData: вектор из документации Telegram Mini Apps', () => {
-  // https://docs.telegram-mini-apps.com/platform/init-data — известный hash.
-  const initData = [
-    'auth_date=1662771648',
-    'query_id=AAHdF6IQAAAAAN0XohDhrOrc',
-    'user={"id":279058397,"first_name":"Vladislav","last_name":"Kibenko","username":"vdkfrost","language_code":"ru","is_premium":true}',
-    'hash=c501b71e775f74ce10e377dea85a7ea24ecd640b223ea86dfe453e0eaed2e2b2',
-  ].join('&');
+test('подпись initData: верный токен принимает, чужой — нет', () => {
+  const initData = signInitData(BOT, {
+    auth_date: '1662771648',
+    query_id: 'AAHdF6IQAAAAAN0XohDhrOrc',
+    user: JSON.stringify({
+      id: Number(OWNER),
+      first_name: 'Test',
+      last_name: 'Owner',
+      username: 'test_owner',
+      language_code: 'ru',
+      is_premium: true,
+    }),
+  });
   assert.equal(initDataSignatureOk(initData, BOT), true);
   assert.equal(initDataSignatureOk(initData, '1:wrong'), false);
 });
@@ -40,7 +46,7 @@ test('verifyTgWebAppInitData: владелец проходит, чужой и �
   const ok = verifyTgWebAppInitData(initData, BOT, OWNER, authDate + 60);
   assert.equal(ok.ok, true);
   if (ok.ok) {
-    assert.equal(ok.data.user.id, 279058397);
+    assert.equal(ok.data.user.id, Number(OWNER));
     assert.equal(ok.data.user.username, 'owner');
   }
 
@@ -58,24 +64,30 @@ test('verifyTgWebAppInitData: владелец проходит, чужой и �
 test('parseInitDataFields: пары через &, значение user с JSON', () => {
   const raw = [
     'query_id=AAHdF6IQAAAAAN0XohDhrOrc',
-    'user={"id":279058397,"first_name":"Vladislav"}',
+    'user={"id":100500,"first_name":"Test"}',
     'auth_date=1662771648',
-    'hash=c501b71e775f74ce10e377dea85a7ea24ecd640b223ea86dfe453e0eaed2e2b2',
+    'hash=deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef',
   ].join('&');
   const m = parseInitDataFields(raw);
   assert.equal(m.get('query_id'), 'AAHdF6IQAAAAAN0XohDhrOrc');
-  assert.equal(m.get('user'), '{"id":279058397,"first_name":"Vladislav"}');
+  assert.equal(m.get('user'), '{"id":100500,"first_name":"Test"}');
   assert.equal(m.get('auth_date'), '1662771648');
 });
 
 test('hash WebView: незакодированный tgWebAppData нельзя резать по первому &', () => {
   // Telegram иногда кладёт поля initData в hash без обёртки encode — тогда split('&')/URLSearchParams портят value.
-  const initData = [
-    'auth_date=1662771648',
-    'query_id=AAHdF6IQAAAAAN0XohDhrOrc',
-    'user={"id":279058397,"first_name":"Vladislav","last_name":"Kibenko","username":"vdkfrost","language_code":"ru","is_premium":true}',
-    'hash=c501b71e775f74ce10e377dea85a7ea24ecd640b223ea86dfe453e0eaed2e2b2',
-  ].join('&');
+  const initData = signInitData(BOT, {
+    auth_date: '1662771648',
+    query_id: 'AAHdF6IQAAAAAN0XohDhrOrc',
+    user: JSON.stringify({
+      id: Number(OWNER),
+      first_name: 'Test',
+      last_name: 'Owner',
+      username: 'test_owner',
+      language_code: 'ru',
+      is_premium: true,
+    }),
+  });
   const hash = `tgWebAppData=${initData}&tgWebAppVersion=8.0&tgWebAppPlatform=android`;
 
   const broken = new URLSearchParams(hash).get('tgWebAppData') ?? '';
