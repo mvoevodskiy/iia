@@ -221,46 +221,19 @@ remove_bot_instance() {
   echo "ok removed=${id}"
 }
 
-# BEGIN JARVIS LEGACY WRITER PREFLIGHT
-legacy_runtime_writer_allowed() {
-# Preserve legacy macOS execution; enrollment is supported only on Linux.
-case "$(/usr/bin/uname -s)" in Linux) ;; Darwin) return 0 ;; *) return 75 ;; esac
-/usr/bin/env -i PATH=/usr/bin:/bin /usr/bin/node --input-type=commonjs - <<'JARVIS_WRITER_PREFLIGHT'
-function legacyRuntimeWriterAllowed(io) {
-  // Paid enrollment is Linux-only; retain sync's existing macOS/Windows behavior.
-  if (!io && process.platform !== 'linux') return true;
-  const fs = io || require('node:fs');
-  try {
-    for (const parent of ['/', '/etc', '/var', '/var/lib']) {
-      const s = fs.statSync(parent);
-      if (!s.isDirectory() || s.uid !== 0 || (s.mode & 0o022) !== 0) return false;
-    }
-    for (const marker of ['/etc/jarvis-runtime-enrolled', '/var/lib/jarvis-runtime']) {
-      try { fs.lstatSync(marker); return false; }
-      catch (e) { if (!e || e.code !== 'ENOENT') return false; }
-    }
-    return true;
-  } catch (_) { return false; }
-}
-if (!legacyRuntimeWriterAllowed()) { process.stderr.write('JARVIS_RUNTIME_WRITER_HELD\n'); process.exit(75); }
-JARVIS_WRITER_PREFLIGHT
-}
-# END JARVIS LEGACY WRITER PREFLIGHT
 
 if [ "$ACTION" = "add" ]; then
-  legacy_runtime_writer_allowed || exit 75
   add_bot_instance "$BOT_ID" "$TOKEN_FILE"
   exit 0
 fi
 if [ "$ACTION" = "remove" ]; then
-  legacy_runtime_writer_allowed || exit 75
   remove_bot_instance "$BOT_ID"
   exit 0
 fi
 
 case "$ACTION" in
   status|is-active) ;;
-  *) legacy_runtime_writer_allowed || exit 75 ;;
+  *) ;;
 esac
 
 # Pick the target unit. On a multi-bot VPS the template file exists; legacy

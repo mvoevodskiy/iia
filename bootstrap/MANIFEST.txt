@@ -36,8 +36,9 @@ systemd/msb-engine.path/.service + msb-engine-tick.*
 systemd/drop-ins/system-msb-bot.slice.d/
 etc/msb-tick/puller.conf  → /etc/msb-tick/puller.conf
 etc/sudoers.d/{msb-admin,agent-client,msb-tick,msb-engine}
-  # НЕ ставятся: jarvis-client, msb-full-rights, jarvis-engine*, msb-base-pulse*
-  # Миграция с Jarvis: bootstrap/migrate-from-jarvis.sh
+  # НЕ ставятся: jarvis-*, msb-base-pulse*, msb-full-rights (opt-in)
+  # Архив закрытого OS: vendor/legacy-jarvis-os/
+  # Миграция живого бокса: bootstrap/migrate-from-jarvis.sh (purge)
 
 Создаётся на месте:
   /home/client/projects/          # пусто — проекты бот заводит сам

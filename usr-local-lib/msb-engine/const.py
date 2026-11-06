@@ -2,8 +2,11 @@ import re
 
 HELPER_VERSION = "1.0.0"
 
+# enable/disable-jarvis — исторические имена IPC (= MSB-бот). Канон: enable-msb / disable-msb.
 ACTIONS = (
     "status",
+    "enable-msb",
+    "disable-msb",
     "enable-jarvis",
     "disable-jarvis",
     "enable-openclaw",
@@ -13,11 +16,13 @@ ACTIONS = (
 
 SOURCE_ACTIONS = {
     "client": ACTIONS,
-    "openclaw": ("status", "enable-jarvis", "update-openclaw"),
+    "openclaw": ("status", "enable-msb", "enable-jarvis", "update-openclaw"),
 }
 
 REQUEST_KEYS = {
     "status": ("bot_id",),
+    "enable-msb": ("bot_id",),
+    "disable-msb": ("bot_id",),
     "enable-jarvis": ("bot_id",),
     "disable-jarvis": ("bot_id",),
     "enable-openclaw": ("bot_id",),
@@ -26,6 +31,7 @@ REQUEST_KEYS = {
 }
 
 REQUIRED_KEYS = {
+    "disable-msb": ("bot_id",),
     "disable-jarvis": ("bot_id",),
 }
 
@@ -54,7 +60,6 @@ STUCK_SLEEP = 10
 CLIENT_HOME = "/home/client"
 OC_HOME = "/home/openclaw"
 RUN_DIR = "/run/msb-engine"
-COMPAT_RUN = "/run/jarvis-engine"
 STATE_DIR = "/var/lib/msb-engine"
 ETC_DIR = "/etc/msb-engine"
 LIB_DIR = "/usr/local/lib/msb-engine"

@@ -57,7 +57,7 @@ export function createBot(cfg) {
   });
 
   bot.command('openclaw', async (ctx) => {
-    if (process.env.JARVIS_CC_ONLY === '1') {
+    if ((process.env.MSB_CC_ONLY || process.env.JARVIS_CC_ONLY) === '1') {
       await ctx.reply(
         'Этот бот работает только с 👾 Claude Code.\nOpenClaw: /settings → ⚙️ Движки → ➕ OpenClaw.',
       );
@@ -381,7 +381,7 @@ export function createBot(cfg) {
 
   // set commands after start
   bot.api
-    .setMyCommands(commandsForEngine('cc', process.env.JARVIS_CC_ONLY === '1'))
+    .setMyCommands(commandsForEngine('cc', (process.env.MSB_CC_ONLY || process.env.JARVIS_CC_ONLY) === '1'))
     .catch((err) => console.error('[msb/bot] setMyCommands failed:', err.message));
 
   return bot;

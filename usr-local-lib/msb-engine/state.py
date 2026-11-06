@@ -7,7 +7,6 @@ from const import (
     BOT_UNIT_TMPL,
     CLIENT_HOME,
     CODES,
-    COMPAT_RUN,
     HELPER_VERSION,
     MARKS_DIR,
     OC_HOME,
@@ -191,12 +190,12 @@ def available_actions(j, o):
             acts.append("update-openclaw")
     if j["installed"]:
         if any(b["enabled"] and not b["sleeping"] for b in j["bots"]):
-            acts.append("disable-jarvis")
+            acts.append("disable-msb")
         if any(
             not b["removed"] and (not b["enabled"] or b["masked"] or b["sleeping"])
             for b in j["bots"]
         ):
-            acts.append("enable-jarvis")
+            acts.append("enable-msb")
     return {s: [a for a in acts if a in SOURCE_ACTIONS[s]] for s, _, _ in SOURCES}
 
 
@@ -214,7 +213,10 @@ def compute_state():
         "host_ready": True,
         "actions": available_actions(j, o),
         "codes": list(CODES),
+        # `jarvis` — совместимое имя блока MSB-ботов (контракт UI/старых экранов).
+        # `msb` — канонический алиас без бренда создателя.
         "jarvis": j,
+        "msb": j,
         "openclaw": o,
         "way_back": way_back(o),
         "updates": {"auto": False},
@@ -248,23 +250,7 @@ def ensure_run_dirs():
     ensure_root_dir(RUN_DIR, 0o755)
     ensure_root_dir(STATE_DIR, 0o700)
     ensure_root_dir(MARKS_DIR, 0o700)
-    # Compat: боты/плагины, ещё читающие /run/jarvis-engine
-    if not os.path.lexists(COMPAT_RUN):
-        try:
-            os.symlink(RUN_DIR, COMPAT_RUN)
-        except OSError:
-            pass
-    elif os.path.islink(COMPAT_RUN):
-        pass
-    elif os.path.isdir(COMPAT_RUN) and not os.path.samefile(COMPAT_RUN, RUN_DIR):
-        # уже есть каталог от Jarvis — подложим state symlink внутрь
-        dest = os.path.join(COMPAT_RUN, "state.json")
-        src = os.path.join(RUN_DIR, "state.json")
-        if not os.path.lexists(dest) and os.path.lexists(src):
-            try:
-                os.symlink(src, dest)
-            except OSError:
-                pass
+    # Жёсткий cutover: не создаём /run/jarvis-engine. Старый symlink/каталог — только чистим при migrate.
 
 
 def read_state():
@@ -282,12 +268,6 @@ def write_state(update):
     st.update(update)
     payload = (json.dumps(st, sort_keys=True) + "\n").encode()
     write_file(os.path.join(RUN_DIR, "state.json"), payload, 0o644)
-    # mirror into legacy dir if it is a real directory
-    if os.path.isdir(COMPAT_RUN) and not os.path.islink(COMPAT_RUN):
-        try:
-            write_file(os.path.join(COMPAT_RUN, "state.json"), payload, 0o644)
-        except OSError as e:
-            log(f"compat state write failed: {e}")
 
 
 def write_result(source, rid, action, result, code, phase=None, detail=None, bot_id=None):

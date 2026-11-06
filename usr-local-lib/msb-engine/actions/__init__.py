@@ -4,6 +4,8 @@ from .status import act_status
 
 ACTS = {
     "status": act_status,
+    "enable-msb": act_enable_jarvis,
+    "disable-msb": act_disable_jarvis,
     "enable-jarvis": act_enable_jarvis,
     "disable-jarvis": act_disable_jarvis,
     "enable-openclaw": act_enable_openclaw,

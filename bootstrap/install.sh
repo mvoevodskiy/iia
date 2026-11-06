@@ -349,8 +349,7 @@ CORE_UNITS=(
   msb-engine-tick.timer
   msb-engine-tick.service
 )
-# НЕ ставим: jarvis-engine*, msb-base-pulse* (pulse на SYNC создателя).
-# Эталон jarvis остаётся в репо для migrate/rollback, на чистый бокс не кладётся.
+# НЕ ставим: jarvis-engine*, msb-base-pulse* (архив vendor/legacy-jarvis-os/).
 
 install_systemd() {
   log "systemd-юниты ядра"

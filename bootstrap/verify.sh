@@ -48,11 +48,25 @@ if systemctl is-enabled msb-engine-tick.timer >/dev/null 2>&1; then
 else
   bad "msb-engine-tick.timer не enabled"
 fi
-je="$(systemctl is-enabled jarvis-engine.path 2>/dev/null || true)"
-if [[ "$je" == "masked" || "$je" == "disabled" || "$je" == "" ]]; then
-  ok "jarvis-engine.path не active ($je)"
+if [[ -e /usr/local/sbin/jarvis-engine ]] || [[ -d /usr/local/lib/jarvis-engine ]]; then
+  bad "jarvis-engine ещё на диске — запусти migrate-from-jarvis.sh"
 else
-  bad "jarvis-engine.path всё ещё enabled ($je) — конфликт helper"
+  ok "нет jarvis-engine binary/lib"
+fi
+if [[ -f /etc/systemd/system/jarvis-engine.path ]] || [[ -f /etc/systemd/system/msb-base-pulse.service ]]; then
+  bad "unit-файлы Jarvis/base-pulse ещё в /etc/systemd/system"
+else
+  ok "нет jarvis/base-pulse unit-файлов в /etc"
+fi
+if [[ -e /run/jarvis-engine ]]; then
+  bad "/run/jarvis-engine ещё существует (нужен cutover)"
+else
+  ok "нет /run/jarvis-engine"
+fi
+if [[ -e /etc/jarvis-runtime-enrolled ]] || [[ -e /var/lib/jarvis-runtime ]]; then
+  bad "enrollment-маркеры создателя ещё на месте"
+else
+  ok "нет jarvis-runtime enrollment"
 fi
 if [[ -x /usr/local/sbin/msb-engine ]]; then
   if /usr/local/sbin/msb-engine status >/dev/null 2>&1; then

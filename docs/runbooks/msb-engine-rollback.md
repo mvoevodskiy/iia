@@ -1,38 +1,29 @@
-# Rollback OS-обвязки: msb-engine → jarvis-engine
+# Rollback / снимки OS-обвязки
 
-Снимок перед миграцией: `/usr/local/lib/msb-engine/rollback/<stamp>/`  
-Указатель: `/usr/local/lib/msb-engine/rollback/LATEST`
+Штатный путь — только **msb-engine**. Архив закрытого Jarvis лежит в
+`vendor/legacy-jarvis-os/` и **не** ставится bootstrap’ом.
 
-## Быстрый откат (root)
+## Снимок на боксе
+
+При `bootstrap/migrate-from-jarvis.sh` пишется
+`/usr/local/lib/msb-engine/rollback/<stamp>/` (бинарь/units/sudoers Jarvis до purge).
+
+Восстановление Jarvis с снимка — аварийный ручной сценарий (не поддерживается как продукт):
 
 ```bash
 SNAP=/usr/local/lib/msb-engine/rollback/$(cat /usr/local/lib/msb-engine/rollback/LATEST)
-
-systemctl disable --now msb-engine.path msb-engine-tick.timer
-systemctl stop msb-engine.service msb-engine-tick.service 2>/dev/null || true
-
-# вернуть бинарь и units Jarvis
-cp -a "$SNAP/bin/jarvis-engine" /usr/local/sbin/jarvis-engine 2>/dev/null \
-  || cp -a "$SNAP/bin/jarvis-engine.removed" /usr/local/sbin/jarvis-engine
-[[ -d "$SNAP/lib-jarvis-engine" ]] && rsync -a "$SNAP/lib-jarvis-engine/" /usr/local/lib/jarvis-engine/
-cp -a "$SNAP/units/"*.path "$SNAP/units/"*.service "$SNAP/units/"*.timer /etc/systemd/system/ 2>/dev/null || true
-
-# sudoers ALL (если был)
-[[ -f "$SNAP/jarvis-client.sudoers" ]] && cp -a "$SNAP/jarvis-client.sudoers" /etc/sudoers.d/jarvis-client
-
+# только если осознанно нужен старый helper
+cp -a "$SNAP/bin/"* /usr/local/sbin/ 2>/dev/null || true
+cp -a "$SNAP/units/"* /etc/systemd/system/ 2>/dev/null || true
 systemctl daemon-reload
-systemctl unmask jarvis-engine.path jarvis-engine-tick.timer jarvis-engine-update.path
-systemctl enable --now jarvis-engine.path jarvis-engine-tick.timer jarvis-engine-update.path
-
-systemctl mask msb-engine.path msb-engine-tick.timer
 ```
 
 ## Откат только бота (без OS)
 
 ```bash
-# в .env бота / unit Environment
+# Environment бота / .env
 MSB_USE_CLOSED_CORE=1
 systemctl restart msb-bot@default
 ```
 
-Бот снова грузит `vendor/index.closed.js`. OS-helper при этом остаётся `msb-engine`, если не делал полный rollback выше.
+Это возвращает `vendor/index.closed.js` для Telegram-ядра; OS-helper остаётся `msb-engine`.

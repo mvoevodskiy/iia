@@ -1,16 +1,13 @@
 /**
  * Клиент IPC к msb-engine: заявка в ~/.msb/engine/request, результат в /run/msb-engine/state.json
- * (compat: /run/jarvis-engine/state.json).
+ * 
  */
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { msbRoot } from '../paths.mjs';
 
-const RUN_CANDIDATES = [
-  '/run/msb-engine/state.json',
-  '/run/jarvis-engine/state.json',
-];
+const RUN_CANDIDATES = ['/run/msb-engine/state.json'];
 
 export function engineDir(env = process.env) {
   return path.join(msbRoot(env), 'engine');
@@ -93,7 +90,8 @@ export async function engineStatusSnapshot() {
   return {
     helper: state.helper || state.helper_version || null,
     path: p,
-    jarvis: state.jarvis || null,
+    msb: state.msb || state.jarvis || null,
+    jarvis: state.jarvis || state.msb || null,
     openclaw: state.openclaw || null,
     actions: state.actions?.client || [],
     last: state.last || null,

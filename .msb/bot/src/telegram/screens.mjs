@@ -134,7 +134,7 @@ export function permModeScreen() {
 
 export async function connScreen(state, env = process.env) {
   const connected = hasClaudeAuth(env, state);
-  const ccOnly = env.JARVIS_CC_ONLY === '1';
+  const ccOnly = (env.MSB_CC_ONLY || env.JARVIS_CC_ONLY) === '1';
   if (ccOnly && state.engine === 'oc') {
     return {
       text: CC_ONLY_OC_BLOCK,
@@ -362,7 +362,7 @@ ${BLANK}`,
 
 export function enginesScreen(state, engineSnap = null) {
   const eng = state.engine === 'oc' ? 'OpenClaw' : 'Claude Code';
-  const j = engineSnap?.jarvis;
+  const j = (engineSnap?.msb || engineSnap?.jarvis);
   const o = engineSnap?.openclaw;
   const helper = engineSnap?.helper ? String(engineSnap.helper) : '—';
   const jLine = j

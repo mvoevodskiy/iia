@@ -1,35 +1,8 @@
 #!/bin/bash
 # msb-bot-watchdog.sh — ExecStartPre guard against crash loops.
 # Multi-bot aware: routes per-bot crash state via MSB_BOT_ID env var.
-# BEGIN JARVIS LEGACY WRITER PREFLIGHT
-legacy_runtime_writer_allowed() {
-# Preserve legacy macOS execution; enrollment is supported only on Linux.
-case "$(/usr/bin/uname -s)" in Linux) ;; Darwin) return 0 ;; *) return 75 ;; esac
-/usr/bin/env -i PATH=/usr/bin:/bin /usr/bin/node --input-type=commonjs - <<'JARVIS_WRITER_PREFLIGHT'
-function legacyRuntimeWriterAllowed(io) {
-  // Paid enrollment is Linux-only; retain sync's existing macOS/Windows behavior.
-  if (!io && process.platform !== 'linux') return true;
-  const fs = io || require('node:fs');
-  try {
-    for (const parent of ['/', '/etc', '/var', '/var/lib']) {
-      const s = fs.statSync(parent);
-      if (!s.isDirectory() || s.uid !== 0 || (s.mode & 0o022) !== 0) return false;
-    }
-    for (const marker of ['/etc/jarvis-runtime-enrolled', '/var/lib/jarvis-runtime']) {
-      try { fs.lstatSync(marker); return false; }
-      catch (e) { if (!e || e.code !== 'ENOENT') return false; }
-    }
-    return true;
-  } catch (_) { return false; }
-}
-if (!legacyRuntimeWriterAllowed()) { process.stderr.write('JARVIS_RUNTIME_WRITER_HELD\n'); process.exit(75); }
-JARVIS_WRITER_PREFLIGHT
-}
-# END JARVIS LEGACY WRITER PREFLIGHT
 
 # Defer legacy repair without preventing the enrolled unit start guard from deciding.
-legacy_runtime_writer_allowed || exit 0
-
 BOT_ID="${MSB_BOT_ID:-}"
 VERSIONS_DIR="/home/client/.msb/bot/versions"
 BOT_FILE="/home/client/.msb/bot/index.js"

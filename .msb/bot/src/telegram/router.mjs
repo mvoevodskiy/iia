@@ -236,7 +236,7 @@ export async function handleCallback({ bot, cfg, pending, ctx }) {
   if (data === 'nm:list') return show(notificationsScreen());
   if (data === 'eng:home' || data === 'eng:add' || data === 'eng:mig') {
     const snap = await engineStatusSnapshot();
-    if (process.env.JARVIS_CC_ONLY === '1' && data !== 'eng:home') {
+    if ((process.env.MSB_CC_ONLY || process.env.JARVIS_CC_ONLY) === '1' && data !== 'eng:home') {
       return show({ text: CC_BLOCK(), keyboard: enginesScreen(state, snap).keyboard });
     }
     return show(enginesScreen(state, snap));
