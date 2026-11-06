@@ -34,6 +34,17 @@ SESSION_HOURS=${PULT_SESSION_HOURS:-$(old PULT_SESSION_HOURS)}
 
 # Значения с пробелами и спецсимволами допустимы: systemd EnvironmentFile понимает кавычки.
 q() { printf '"%s"' "$(printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g')"; }
+# Mini App discovery uses this directory; collector sources stay in PULT_CONFIG.
+BOTS_DIR=${PULT_BOTS_DIR:-${PULT_BOTS_ROOT:-}}
+if [ -n "$BOTS_DIR" ]; then
+  BOTS_ENV=$(q "$BOTS_DIR")
+else
+  BOTS_ENV=$(old PULT_BOTS_DIR)
+  [ -n "$BOTS_ENV" ] || BOTS_ENV=$(old PULT_BOTS_ROOT)
+  if [ -z "$BOTS_ENV" ] && [ "${MSB_RUNTIME_PROFILE:-msb}" = jar1 ]; then
+    BOTS_ENV=/home/client/.iia/bots
+  fi
+fi
 {
   echo "# Секреты веб-сервиса Пульта. Пишет deploy/secrets.sh, руками не править."
   echo "PULT_PORT=$PORT"
@@ -41,6 +52,7 @@ q() { printf '"%s"' "$(printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g')"; }
   echo "PULT_DATA_DIR=$DATA"
   echo "PULT_PUBLIC_URL=$PUBLIC_URL"
   echo "PULT_SESSION_HOURS=$SESSION_HOURS"
+  [ -n "$BOTS_ENV" ] && echo "PULT_BOTS_DIR=$BOTS_ENV"
   # http://… (сток без TLS) — иначе браузер не сохранит cookie SameSite=Strict+Secure
   if [[ "$PUBLIC_URL" == http://* ]]; then echo "PULT_COOKIE_SECURE=0"; else echo "PULT_COOKIE_SECURE=1"; fi
   echo "PULT_TRUST_PROXY=1"
