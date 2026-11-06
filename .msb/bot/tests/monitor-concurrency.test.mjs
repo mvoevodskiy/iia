@@ -184,3 +184,34 @@ test('different bot processes sharing a profile cannot send the scheduled digest
   assert.match(first.output(), /RESULT:sent/);
   assert.match(second.output(), /RESULT:already/);
 });
+
+test('two collectors cannot append the same item at the same time', async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'monitor-append-race-'));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const script = fileURLToPath(new URL('./fixtures/monitor-append.mjs', import.meta.url));
+  const child = () => {
+    const proc = spawn(process.execPath, [script, root], { stdio: ['pipe', 'pipe', 'pipe'] });
+    let output = '', errors = '';
+    proc.stdout.on('data', (chunk) => { output += chunk; });
+    proc.stderr.on('data', (chunk) => { errors += chunk; });
+    const exit = new Promise((resolve, reject) => {
+      proc.once('error', reject);
+      proc.once('close', (code) => resolve({ code, errors }));
+    });
+    t.after(() => proc.kill('SIGKILL'));
+    return { proc, exit, output: () => output };
+  };
+  const a = child(), b = child();
+  const until = Date.now() + 5_000;
+  while (!a.output().includes('READY') || !b.output().includes('READY')) {
+    if (Date.now() > until) throw Error('collectors did not become ready');
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  a.proc.stdin.end('go'); b.proc.stdin.end('go');
+  const results = await Promise.all([a.exit, b.exit]);
+  for (const result of results) assert.equal(result.code, 0, result.errors);
+  assert.deepEqual([a.output().includes('ADDED:1'), b.output().includes('ADDED:1')].sort(), [false, true]);
+  const lines = (await fs.readFile(path.join(root, 'monitor/items.jsonl'), 'utf8')).trim().split('\n');
+  assert.equal(lines.length, 1);
+  assert.equal(JSON.parse(lines[0]).id, 'shared-id');
+});

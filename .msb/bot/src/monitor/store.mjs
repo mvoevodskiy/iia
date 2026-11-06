@@ -56,6 +56,10 @@ export function updateMeta(mutator, env = process.env) {
 
 export async function appendItems(items, env = process.env) {
   if (!items.length) return 0;
+  return withFileLock(itemsPath(env), async () => appendItemsLocked(items, env));
+}
+
+async function appendItemsLocked(items, env) {
   await fs.mkdir(monitorDir(env), { recursive: true });
   const seen = await loadRecentIds(5000, env);
   let added = 0;
