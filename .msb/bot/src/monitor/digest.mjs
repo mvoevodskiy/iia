@@ -28,13 +28,15 @@ export async function maybeSendDigest({ api, adminId, force = false, env = proce
   const hour = cfg.digest?.hour ?? 9;
   const { state } = await loadState(env);
   const tz = state.timezone || env.MSB_TIMEZONE || 'Europe/Moscow';
-  const nowHour = hourInTz(tz);
+  const now = new Date();
+  const localNow = clockInTz(now, tz);
   const meta = await loadMeta(env);
-  const day = new Date().toISOString().slice(0, 10);
+  const lastSent = new Date(meta.lastDigestAt || '');
+  const lastDay = Number.isNaN(lastSent.getTime()) ? null : clockInTz(lastSent, tz).day;
 
   if (!force) {
-    if (nowHour !== hour) return { sent: false, reason: 'wrong-hour' };
-    if (meta.lastDigestAt?.startsWith(day)) return { sent: false, reason: 'already' };
+    if (localNow.hour !== hour) return { sent: false, reason: 'wrong-hour' };
+    if (lastDay === localNow.day) return { sent: false, reason: 'already' };
   }
 
   const dig = await buildDigestText(env);
@@ -54,16 +56,16 @@ export async function updateDigestSettings(patch, env = process.env) {
   return cfg.digest;
 }
 
-function hourInTz(tz) {
+function clockInTz(date, tz) {
   try {
     const parts = new Intl.DateTimeFormat('en-GB', {
       timeZone: tz,
-      hour: 'numeric',
-      hour12: false,
-    }).formatToParts(new Date());
-    return Number(parts.find((p) => p.type === 'hour')?.value || 0);
+      year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', hourCycle: 'h23',
+    }).formatToParts(date);
+    const get = (type) => parts.find((part) => part.type === type)?.value;
+    return { day: `${get('year')}-${get('month')}-${get('day')}`, hour: Number(get('hour')) };
   } catch {
-    return new Date().getHours();
+    return { day: `${date.getFullYear()}-${date.getMonth() + 1}-${date.getDate()}`, hour: date.getHours() };
   }
 }
 
