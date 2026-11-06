@@ -22,6 +22,14 @@ export async function handleMonitorRoute({ data, show, pending, chatId, bot }) {
       keyboard: (await monitorSourcesScreen()).keyboard,
     });
   }
+  if (data.startsWith('mon:src-key:')) {
+    const parts = data.split(':');
+    const [, , type, token] = parts;
+    if (parts.length === 4 && type && /^[a-f0-9]{32}$/.test(token || '')) {
+      await removeSource(type, token, process.env, { byToken: true });
+    }
+    return show(await monitorSourcesScreen());
+  }
   if (data.startsWith('mon:src-del:')) {
     const rest = data.slice('mon:src-del:'.length);
     const i = rest.indexOf(':');

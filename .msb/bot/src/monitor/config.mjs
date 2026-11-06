@@ -2,6 +2,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
 import { msbRoot } from '../paths.mjs';
+import { sourceToken } from './source-ref.mjs';
 
 export function monitorDir(env = process.env) {
   return path.join(msbRoot(env), 'monitor');
@@ -177,28 +178,33 @@ export async function addSourceFromInput(raw, env = process.env) {
   return { ok: false, error: 'Неизвестный тип' };
 }
 
-export async function removeSource(type, id, env = process.env) {
+export async function removeSource(type, id, env = process.env, { byToken = false } = {}) {
   const cfg = await loadMonitorConfig(env);
   const mark = (arr, pred) => {
-    const i = arr.findIndex(pred);
-    if (i >= 0) arr.splice(i, 1);
-    return i >= 0;
+    const matches = arr.flatMap((entry, index) => pred(entry) ? [index] : []);
+    // Old ID callbacks keep their prior first-match behavior. Token callbacks
+    // must resolve uniquely so a stale button cannot remove a different source.
+    if (!matches.length || (byToken && matches.length !== 1)) return false;
+    arr.splice(matches[0], 1);
+    return true;
   };
+  const tokenMatches = (aliases) => aliases.filter((alias) => typeof alias === 'string' && alias)
+    .some((alias) => sourceToken(type, alias) === id);
   let ok = false;
   if (type === 'youtube') {
-    ok = mark(cfg.youtube.channels, (c) => c.channelId === id || c.handle === id || c.name === id);
+    ok = mark(cfg.youtube.channels, (c) => byToken ? tokenMatches([c.channelId, c.handle, c.name]) : c.channelId === id || c.handle === id || c.name === id);
     if (!cfg.youtube.channels.length) cfg.youtube.enabled = false;
   } else if (type === 'twitter') {
-    ok = mark(cfg.twitter.accounts, (a) => a.username === id);
+    ok = mark(cfg.twitter.accounts, (a) => byToken ? tokenMatches([a.username]) : a.username === id);
     if (!cfg.twitter.accounts.length) cfg.twitter.enabled = false;
   } else if (type === 'github') {
-    ok = mark(cfg.github.repos, (r) => `${r.owner}/${r.repo}` === id || r.name === id);
+    ok = mark(cfg.github.repos, (r) => byToken ? tokenMatches([`${r.owner}/${r.repo}`]) : `${r.owner}/${r.repo}` === id || r.name === id);
     if (!cfg.github.repos.length) cfg.github.enabled = false;
   } else if (type === 'telegram') {
-    ok = mark(cfg.telegram.channels, (c) => c.username === id);
+    ok = mark(cfg.telegram.channels, (c) => byToken ? tokenMatches([c.username]) : c.username === id);
     if (!cfg.telegram.channels.length) cfg.telegram.enabled = false;
   } else if (type === 'rss') {
-    ok = mark(cfg.rss.feeds, (f) => f.url === id || f.name === id);
+    ok = mark(cfg.rss.feeds, (f) => byToken ? tokenMatches([f.url]) : f.url === id || f.name === id);
     if (!cfg.rss.feeds.length) cfg.rss.enabled = false;
   }
   if (ok) await saveMonitorConfig(cfg, env);
